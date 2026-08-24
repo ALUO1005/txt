@@ -11,6 +11,28 @@
   --turn: slide;
 }
 
+/* ---------- 用户自定义手写体（嵌入站点，网页独立调用，不依赖系统全局） ---------- */
+@font-face {
+  font-family: "mengmengdashouxieti";
+  src: url("vendor/fonts/mengmengdashouxieti.ttf") format("truetype");
+  font-display: swap;
+}
+@font-face {
+  font-family: "xiaoxiangshoushu";
+  src: url("vendor/fonts/xiaoxiangshoushu.ttf") format("truetype");
+  font-display: swap;
+}
+@font-face {
+  font-family: "xiaopingguoshouxieti";
+  src: url("vendor/fonts/xiaopingguoshouxieti.ttf") format("truetype");
+  font-display: swap;
+}
+@font-face {
+  font-family: "xiaoluolitashouxieti";
+  src: url("vendor/fonts/xiaoluolitashouxieti.ttf") format("truetype");
+  font-display: swap;
+}
+
 * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
 [hidden] { display: none !important; }
 html, body {

@@ -18,7 +18,11 @@ const App = {
     { id: 'sys',  name: '系统',  css: '-apple-system, "PingFang SC", "Microsoft YaHei", sans-serif' },
     { id: 'song', name: '宋体',  css: '"Songti SC", "SimSun", serif' },
     { id: 'kai',  name: '楷体',  css: '"Kaiti SC", "KaiTi", serif' },
-    { id: 'hei',  name: '黑体',  css: '"Heiti SC", "SimHei", sans-serif' }
+    { id: 'hei',  name: '黑体',  css: '"Heiti SC", "SimHei", sans-serif' },
+    { id: 'mengmengdashouxieti',  name: '萌萌手写体',   css: '"mengmengdashouxieti", "Kaiti SC", cursive' },
+    { id: 'xiaoxiangshoushu',    name: '潇湘书手',     css: '"xiaoxiangshoushu", "Kaiti SC", cursive' },
+    { id: 'xiaopingguoshouxieti',name: '小苹果手写体', css: '"xiaopingguoshouxieti", "Kaiti SC", cursive' },
+    { id: 'xiaoluolitashouxieti',name: '小萝莉他手写体',css: '"xiaoluolitashouxieti", "Kaiti SC", cursive' }
   ],
   covers: ['#b08968','#7d9b76','#6b8e9e','#a8758a','#c08a5e','#7a7d9b','#9e8a6b','#6e9b8f']
 };
