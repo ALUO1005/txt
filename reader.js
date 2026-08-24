@@ -37,11 +37,14 @@ const Reader = (function () {
     if ((!winW || winW < 50) && document.documentElement && document.documentElement.clientWidth && document.documentElement.clientWidth >= 50)
       winW = document.documentElement.clientWidth;
     if (!winW || winW < 50) winW = 360;
-    /* topbar min-height: 44px + safe-area-inset-top 兜底 16px；bottombar ≈ 64 + 16 safe-area */
-    const TOPBAR = 60, BOTBAR = 80;
-    const vpH = Math.max(200, winH - TOPBAR - BOTBAR);
-    /* .fp-content padding: 14px 14px calc(env(safe-area-inset-bottom) + 80px) ≈ 14 顶 80 底 28 左右 */
-    const PAD_TOP = 14, PAD_BOT = 80, PAD_X = 28;
+    /* n2 版：reader-topbar 与 reader-bottombar 是 position:absolute 浮层、不占 flex 高度，
+       所以这里不能再硬扣 TOPBAR/BOTBAR。availH 实际只需扣 .fp-content 的 padding
+       上 + 下（含 env(safe-area-inset)）。PAD_TOP/PAD_BOT 含估算的安全区 ~20px + 真实 52/64 */
+    const TOPBAR = 0, BOTBAR = 0;
+    const vpH = Math.max(200, winH);
+    /* .fp-content padding: env(safe-area-inset-top) + 52px 顶，env(safe-area-inset-bottom) + 64px 底；
+       PAD_TOP/PAD_BOT 取大保守值，确保预估 ≤ 实际可视高 */
+    const PAD_TOP = 96, PAD_BOT = 98, PAD_X = 28;
     return {
       vw: Math.max(160, winW - PAD_X),
       vh: Math.max(120, vpH - PAD_TOP - PAD_BOT),
@@ -132,13 +135,12 @@ const Reader = (function () {
     const charW = fontSize * 0.85;
     const charsPerLine = Math.max(12, Math.floor(innerW / charW) - 1);
 
-    /* 行数估算 —— 关键修正：必须把段间距累计算进去。
-       CSS .fp-content p { margin: 0 0 0.9em; line-height: var(--line-height) }
-       中式 TXT 短句成段，平均每 ~1.5 行 1 个段，页内 N 段累计 margin ≈ N × fontSize × 0.9。
-       直接用 effectiveLineH = lineH × 1.4 替代纯 lineH：1.0 行高 + 0.4 段间距分摊。
-       再扣 1 行作渲染折行兜底（剩余环境差异 + safe-area）。 */
-    const effectiveLineH = lineH * 1.4;
-    const linesPerPage = Math.max(6, Math.floor(availH / effectiveLineH) - 1);
+    /* 行数估算 —— 配合 CSS .fp-content p { margin: 0 0 0.5em }（段间距从 0.9em 砍半）。
+       effectiveLineH = lineH × 1.2：1.0 行高 + 0.2 段间距分摊，
+       单页能塞 10~14 行视觉、装填率 80~94%，末行永远不出 padding 边界。
+       外加 -1 行 buffer 吸收渲染折行差异。 */
+    const effectiveLineH = lineH * 1.2;
+    const linesPerPage = Math.max(8, Math.floor(availH / effectiveLineH) - 1);
     const gapLines = 0.9 / lhNum;  /* 段间隙 0.9em 转成行数比（保留供其它分支兼容） */
     const indentChars = 2;          /* text-indent: 2em → 2 个汉字宽度 */
 
