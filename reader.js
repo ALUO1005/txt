@@ -547,11 +547,19 @@ const Reader = (function () {
   /* ---------- 控件显隐 ----------
      按需求固定显示顶/底栏：此函数只确保两者都显示，绝不隐藏（避免页面跳动）。
      中部点击已不再调用本函数。 */
+  /* 点击正文中央：切换顶/底栏浮层显隐。
+     顶/底栏已改为 absolute 浮层，显隐只改 opacity（CSS transition），DOM 不增删、viewport 不重排 → 正文零跳动。
+     平时阅读态为 bars-hidden（隐藏），点击中央切到 bars-shown，再点切回。 */
   function toggleControls() {
-    const top = document.getElementById('reader-topbar');
-    const bottom = document.getElementById('reader-bottombar');
-    if (top) top.hidden = false;
-    if (bottom) bottom.hidden = false;
+    const reader = document.getElementById('view-reader');
+    if (!reader) return;
+    const shown = reader.classList.contains('bars-shown');
+    reader.classList.toggle('bars-shown', !shown);
+    reader.classList.toggle('bars-hidden', shown);
+  }
+  /* 是否有覆盖层（弹窗/抽屉/浮面板）打开：打开时正文中央点击不触发显隐，避免误触 */
+  function isOverlayOpen() {
+    return !!document.querySelector('.modal:not([hidden]), .drawer.open, .pop-panel:not([hidden]), #rename-modal:not([hidden])');
   }
 
   function rerenderKeepingChar(char) {
@@ -566,11 +574,13 @@ const Reader = (function () {
 
   /* ---------- 手势 ---------- */
   function handleTap(clientX, target) {
+    /* 覆盖层（弹窗/抽屉/浮面板）打开时，正文点击交给覆盖层，不翻页也不显隐 */
+    if (isOverlayOpen()) return;
     const w = viewport().clientWidth;
     const r = clientX / w;
     if (r < 0.25) go(-1);
     else if (r > 0.75) go(1);
-    /* 中部点击不再显隐控件（固定显示顶/底栏，避免页面跳动），此处留空 */
+    else toggleControls();   /* 中央区域点击 → 切换顶/底栏浮层显隐 */
   }
   let resizeTimer = null;
   function bindGestures() {

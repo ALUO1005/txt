@@ -139,20 +139,25 @@ html.uc .view { height: 100%; }
   padding: 12px 14px; font-size: 13px; box-shadow: 0 4px 16px rgba(0,0,0,0.1);
 }
 
-/* 阅读页 - 物理分层：topbar / viewport / bottombar */
+/* 阅读页 - 物理分层：topbar / viewport / bottombar 为三个独立图层 */
 /* 注意：display 必须在 `.view.active` 内设置（ID 选择器权重高，会覆盖 `.view { display: none }` 让阅读页永远显示） */
 #view-reader.active { display: flex; flex-direction: column; height: 100%; }
+/* 顶栏改为浮层：absolute 浮在 viewport 之上，不占 flex 空间 → 显隐时正文零重排、零跳动 */
 .reader-topbar {
-  flex: 0 0 auto;
+  position: absolute; top: 0; left: 0; right: 0; z-index: 8;
   display: flex; align-items: center; justify-content: space-between;
   padding: calc(env(safe-area-inset-top) + 8px) 8px 8px;
-  color: var(--text); transition: opacity .2s;
-  min-height: 44px;
+  color: var(--text); min-height: 44px;
+  pointer-events: none;            /* 隐藏态不挡点击 */
+  opacity: 0; transition: opacity .2s;
 }
+.reader-topbar > * { pointer-events: auto; }   /* 内部按钮恢复可点 */
 .reader-title { flex: 1; font-size: 15px; text-align: center;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* 正文视区：固定铺满整屏（含顶/底安全区），是永远不动的“第一图层” */
 .reader-viewport { flex: 1 1 auto; min-height: 0; overflow: hidden; position: relative;
   height: 0; touch-action: none; -ms-touch-action: none; }
+.reader-viewport { position: absolute; inset: 0; }   /* 铺满全屏，顶/底栏浮于其上 */
 .reader-stage { position: absolute; inset: 0; perspective: 1800px; perspective-origin: 0% 50%; }
 /* 翻页层：父 .reader-stage 提供 perspective，子 rotateY 即可呈现 3D 翻页效果。
    **不要**给 .flip-page 加 transform-style: preserve-3d —— 嵌套 3D 上下文会让
@@ -173,13 +178,14 @@ html.uc .view { height: 100%; }
   inset: 0;
   width: 100%;
   max-width: 100%;
-  padding: 14px 14px calc(env(safe-area-inset-bottom) + 64px);
+  /* 顶部预留 = 安全区 + 顶栏高度(~44) + 留白；底部预留 = 安全区 + 底栏(~52) + 留白。
+     顶/底栏为 absolute 浮层，此 padding 保证正文首尾行落在浮层之上、不被遮挡，
+     且浮层显隐时正文位置恒定不动 */
+  padding: calc(env(safe-area-inset-top) + 52px) 14px calc(env(safe-area-inset-bottom) + 64px);
   box-sizing: border-box;
   overflow: hidden;
   word-break: break-word;
   overflow-wrap: break-word;
-  /* UC 旧内核对绝对定位宽度继承偶发塌缩，显式给字体与字号兜底（继承自 .view 的 :root 变量，
-     这里再显式一份，UC 上 var(--font-size) 计算偶有 bug） */
   font-size: var(--font-size);
   line-height: var(--line-height);
   font-family: var(--font-family);
@@ -220,12 +226,20 @@ html.uc .view { height: 100%; }
 }
 
 .reader-bottombar {
-  position: absolute; left: 0; right: 0; bottom: 0; z-index: 7;
+  position: absolute; left: 0; right: 0; bottom: 0; z-index: 8;
   display: flex; justify-content: space-around; align-items: center;
   padding: 10px 8px calc(env(safe-area-inset-bottom) + 10px);
   background: var(--bg); border-top: 1px solid var(--line);
   box-shadow: 0 -2px 8px rgba(0,0,0,0.06);
+  pointer-events: none; opacity: 0; transition: opacity .2s;
 }
+.reader-bottombar > * { pointer-events: auto; }
+/* 平时阅读态：顶/底栏隐藏（浮层淡出，DOM 仍在 → 正文不重排不跳动） */
+#view-reader.bars-hidden .reader-topbar,
+#view-reader.bars-hidden .reader-bottombar { opacity: 0; pointer-events: none; }
+/* 点击中央后显示 */
+#view-reader.bars-shown .reader-topbar,
+#view-reader.bars-shown .reader-bottombar { opacity: 1; pointer-events: auto; }
 .bbtn { background: none; border: none; color: var(--text); font-size: 13px;
   display: flex; flex-direction: column; align-items: center; gap: 2px; cursor: pointer;
   flex: 1 1 0; min-width: 0; white-space: nowrap; }

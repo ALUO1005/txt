@@ -63,6 +63,11 @@ function showView(name, pushHistory) {
   document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
   const el = document.getElementById('view-' + name);
   if (el) el.classList.add('active');
+  /* 进入阅读页：默认隐藏顶/底栏浮层（平时阅读态），点正文中央再切换显示 */
+  if (name === 'reader') {
+    el.classList.add('bars-hidden');
+    el.classList.remove('bars-shown');
+  }
   if (pushHistory && name !== 'bookshelf' && !_navLock) {
     history.pushState({ view: name }, '', '#' + name);
   }
