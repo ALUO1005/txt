@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
   <meta name="theme-color" content="#F7F1E3" />
   <title>墨阅 · TXT小说阅读器</title>
-  <link rel="stylesheet" href="styles.css?v=20260824i" />
+  <link rel="stylesheet" href="styles.css?v=20260824j" />
 </head>
 <body>
   <!-- ============ 书架页 ============ -->
@@ -20,13 +20,18 @@
     <div class="bookshelf-toolbar">
       <span class="hint">本地书架 · 阅读进度自动保存</span>
       <div class="import-actions">
-        <label class="import-btn" title="从手机存储选择 .txt 文件">
+        <label class="import-btn" title="从手机存储选择 .txt 文件（可一次多选）">
           + 导入TXT
           <input id="file-input" type="file" accept=".txt,text/plain" multiple hidden />
+        </label>
+        <label class="import-btn secondary" id="btn-import-folder" title="选择一个文件夹，一次性导入里面所有 .txt（等于全选）">
+          📁 导入文件夹
+          <input id="file-input-dir" type="file" webkitdirectory hidden />
         </label>
         <button class="import-btn secondary" id="btn-paste-import" title="粘贴文本内容直接导入">📋 粘贴导入</button>
       </div>
     </div>
+    <p class="import-hint">💡 导入TXT 可一次选多本（文件框里按住多选 / 全选）；导入文件夹可整本导入。</p>
 
     <div id="bookshelf-list" class="bookshelf-list"></div>
     <div id="bookshelf-empty" class="empty-state">
@@ -268,7 +273,7 @@
   <div id="toast" class="toast" hidden></div>
 
   <script src="vendor/tcb.js"></script>
-  <script src="app.js?v=20260824i"></script>
-  <script src="reader.js?v=20260824i"></script>
+  <script src="app.js?v=20260824j"></script>
+  <script src="reader.js?v=20260824j"></script>
 </body>
 </html>

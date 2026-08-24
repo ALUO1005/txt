@@ -547,6 +547,23 @@ function bindEvents() {
     e.target.value = '';
   });
 
+  // 导入文件夹（webkitdirectory：一次导入整个目录里的所有 .txt，相当于"全选"）
+  const dirInput = document.getElementById('file-input-dir');
+  if (dirInput) {
+    dirInput.addEventListener('change', (e) => {
+      const all = Array.from(e.target.files || []);
+      const txts = all.filter(f => /\.txt$/i.test(f.name) || f.type === 'text/plain');
+      if (txts.length) handleImport(txts);
+      else if (all.length) showToast('该文件夹内没有找到 .txt 文件');
+      e.target.value = '';
+    });
+  }
+  // 不支持 webkitdirectory 的浏览器（iOS Safari、部分内置浏览器）隐藏"导入文件夹"入口
+  if (!('webkitdirectory' in document.createElement('input'))) {
+    const fb = document.getElementById('btn-import-folder');
+    if (fb) fb.style.display = 'none';
+  }
+
   // 粘贴导入
   document.getElementById('btn-paste-import').addEventListener('click', openPasteModal);
   document.getElementById('btn-paste-close').addEventListener('click', closePasteModal);

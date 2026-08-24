@@ -51,6 +51,7 @@ html.uc .view { height: 100%; }
 }
 .hint { font-size: 13px; color: var(--sub); }
 .import-actions { display: flex; gap: 8px; align-items: center; }
+.import-hint { font-size: 12px; color: var(--sub); margin: 2px 16px 6px; line-height: 1.5; }
 .import-btn {
   background: var(--accent); color: #fff; padding: 8px 14px; border-radius: 20px;
   font-size: 14px; cursor: pointer; border: none;
