@@ -142,20 +142,17 @@ html.uc .view { height: 100%; }
 /* 阅读页 - 物理分层：topbar / viewport / bottombar 为三个独立图层 */
 /* 注意：display 必须在 `.view.active` 内设置（ID 选择器权重高，会覆盖 `.view { display: none }` 让阅读页永远显示） */
 #view-reader.active { display: flex; flex-direction: column; height: 100%; }
-/* 顶栏改为浮层：absolute 浮在 viewport 之上，不占 flex 空间 → 显隐时正文零重排、零跳动 */
+/* 顶栏浮层（绝对定位，浮在 viewport 上不占空间、显隐零重排零跳动）
+   背景色直接 var(--bg) — 与正文背景完全一致，主题切换时 app.js 修改 --bg 即可联动。
+   0.96 半透不再使用（用户在浅色主题下也嫌"半透穿字"）、改为完全实色背景浮在文字之上。 */
 .reader-topbar {
   position: absolute; top: 0; left: 0; right: 0; z-index: 8;
   display: flex; align-items: center; justify-content: space-between;
   padding: calc(env(safe-area-inset-top) + 8px) 8px 8px;
   color: var(--text); min-height: 44px;
-  /* 顶栏背景色：米色实色 + 1px 边框 + 轻阴影，避免文字穿透看不清（图2问题）。
-     用户接受「顶栏/底栏显示时可覆盖文字」，实色背景让覆盖效果更干净（无穿透糊感）。
-     半透 rgba 给安全区留余地，UC 上 backdrop-filter 无支持也无副作用。 */
-  background: rgba(247, 241, 227, 0.96);
+  background: var(--bg);
   border-bottom: 1px solid var(--line);
   box-shadow: 0 1px 6px rgba(0,0,0,0.06);
-  -webkit-backdrop-filter: saturate(140%) blur(8px);
-  backdrop-filter: saturate(140%) blur(8px);
   pointer-events: none;            /* 隐藏态不挡点击 */
   opacity: 0; transition: opacity .2s;
 }
@@ -179,22 +176,17 @@ html.uc .view { height: 100%; }
   position: absolute; inset: 0; background: var(--bg); z-index: 1;
   backface-visibility: hidden; -webkit-backface-visibility: hidden;
 }
-/* fp-content 可视渲染区：top+left+right + bottom(可被 CSS 变量覆盖) 替代 inset:0，
-   关键兼容：UC 浏览器底部 navbar(~52px) 是浏览器浮层、不属于我们的视图，
-   让 fp-content 的 bottom 在 UC 上 = 52px，最后一行文字真实停在 navbar 之上，
-   不再被 navbar 遮挡（图1问题）。
-   非 UC 上 bottom:0 满屏铺字（隐藏态满屏、显示态底栏盖字用户接受）。 */
+/* fp-content 可视渲染区：回退 inset:0 满屏铺字（跨浏览器最稳）。
+   UC 让位通过下方 html.uc .fp-content 加大 padding-bottom 实现（不写 bottom: var(--xxx) —
+   UC 旧内核解析 CSS 变量降级时会让整条规则失效，导致 fp-content 高度为 0、文字完全不可见）。 */
 .fp-content {
   display: block;
   position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: var(--content-bottom, 0);
+  inset: 0;
   width: 100%;
   max-width: 100%;
-  /* 满屏铺字：顶/底栏均为 absolute 浮层，用户明确接受「底栏显示时覆盖文字、隐藏时文字布满全屏」。
-     故此处只留安全区 + 极小(8px)缓冲防文字贴边。 */
+  /* 满屏铺字：顶/底栏均为 absolute 浮层，用户接受底栏显示时盖字、隐藏时文字布满全屏。
+     仅留安全区 + 8px 极小缓冲。 */
   padding: calc(env(safe-area-inset-top) + 8px) 14px calc(env(safe-area-inset-bottom) + 8px);
   box-sizing: border-box;
   overflow: hidden;
@@ -205,10 +197,10 @@ html.uc .view { height: 100%; }
   font-family: var(--font-family);
   color: var(--text);
 }
-/* UC 浏览器底部 navbar(~52px) 让位：fp-content 的底部收掉，文字最后一行真实停在 navbar 之上。
-   navbar 是浏览器 UI、不是我们的浮层，用户明确要求「取消 UC 遮挡」——必须预留物理空间。
-   这是物理事实、不属于设计冗余紫框。 */
-html.uc .fp-content { --content-bottom: 52px; }
+/* UC 浏览器底部 navbar(~52px) 让位：fp-content 的底部 padding 加大，让最后一行文字
+   自然停在 navbar 之上。同步在 JS getStageInnerSize 中 vpH 减 52，让分页可用高
+   与此处 padding 严格 1:1 对齐——无双扣。CSS 单点管控、跨浏览器一致。 */
+html.uc .fp-content { padding-bottom: calc(env(safe-area-inset-bottom) + 60px); }
 /* UC 旧 WebView 把 .fp-content p 的 shrink-to-fit 算成 max-content（只装 1 字就换行），
    表现为"每行只显示 1 个汉字"。强制 width:100% 让 <p> 占满父容器宽度，
    浏览器在固定宽度容器内用 word-break 正常折行。 */
