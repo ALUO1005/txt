@@ -1,0 +1,274 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+  <meta name="theme-color" content="#F7F1E3" />
+  <title>墨阅 · TXT小说阅读器</title>
+  <link rel="stylesheet" href="styles.css?v=20260824i" />
+</head>
+<body>
+  <!-- ============ 书架页 ============ -->
+  <section id="view-bookshelf" class="view active">
+    <header class="app-header">
+      <h1 class="app-title">墨阅</h1>
+      <div class="header-actions">
+        <button id="btn-open-settings" class="icon-btn" title="设置">⚙</button>
+      </div>
+    </header>
+
+    <div class="bookshelf-toolbar">
+      <span class="hint">本地书架 · 阅读进度自动保存</span>
+      <div class="import-actions">
+        <label class="import-btn" title="从手机存储选择 .txt 文件">
+          + 导入TXT
+          <input id="file-input" type="file" accept=".txt,text/plain" multiple hidden />
+        </label>
+        <button class="import-btn secondary" id="btn-paste-import" title="粘贴文本内容直接导入">📋 粘贴导入</button>
+      </div>
+    </div>
+
+    <div id="bookshelf-list" class="bookshelf-list"></div>
+    <div id="bookshelf-empty" class="empty-state">
+      <div class="empty-emoji">📚</div>
+      <p>书架空空如也</p>
+      <p class="empty-sub">点击右上角「导入TXT」开始阅读</p>
+    </div>
+
+    <div id="import-progress" class="import-progress" hidden></div>
+  </section>
+
+  <!-- ============ 阅读页 ============ -->  <section id="view-reader" class="view">
+    <header class="reader-topbar" id="reader-topbar">
+      <button class="icon-btn" id="btn-reader-back">‹</button>
+      <div class="reader-title" id="reader-title">书名</div>
+      <div class="reader-top-pct" id="reader-top-pct">0%</div>
+      <button class="icon-btn" id="btn-reader-toc">≡</button>
+    </header>
+
+    <div id="reader-viewport" class="reader-viewport">
+      <div class="reader-stage" id="reader-stage">
+        <div class="flip-page" id="flip-a"><div class="fp-content"></div><div class="fp-shade"></div></div>
+        <div class="flip-page" id="flip-b"><div class="fp-content"></div><div class="fp-shade"></div></div>
+      </div>
+    </div>
+
+    <div id="reader-bottombar" class="reader-bottombar">
+      <button class="bbtn" id="btn-edit-mode">✎ 纠错</button>
+      <button class="bbtn" id="btn-find-replace">🔍 查找</button>
+      <button class="bbtn" id="btn-jump">⤳ 跳转</button>
+      <button class="bbtn" id="btn-font">Aa 字体</button>
+      <button class="bbtn" id="btn-export-corrected-bottom">⬇ 导出</button>
+    </div>
+
+    <div id="reader-loading" class="reader-loading" hidden>正在排版…</div>
+  </section>
+
+  <!-- ============ 设置页 ============ -->
+  <section id="view-settings" class="view">
+    <header class="app-header">
+      <button class="icon-btn" id="btn-settings-back">‹</button>
+      <h1 class="app-title">设置</h1>
+      <div style="width:40px"></div>
+    </header>
+
+    <div class="settings-body">
+      <div class="settings-card">
+        <h3>账号</h3>
+        <div id="account-area"></div>
+      </div>
+
+      <div class="settings-card">
+        <h3>阅读主题</h3>
+        <div id="theme-list" class="theme-list"></div>
+      </div>
+
+      <div class="settings-card">
+        <h3>字体</h3>
+        <div class="setting-row">
+          <span>字号</span>
+          <input type="range" id="set-font-size" min="14" max="28" step="1" />
+          <span id="font-size-val" class="setting-val">18</span>
+        </div>
+        <div class="setting-row">
+          <span>行距</span>
+          <input type="range" id="set-line-height" min="1.4" max="2.4" step="0.1" />
+          <span id="line-height-val" class="setting-val">1.8</span>
+        </div>
+        <div class="setting-row col">
+          <span>字体</span>
+          <div id="font-family-list" class="font-family-list"></div>
+        </div>
+        <div class="setting-row col">
+          <span>翻页方式</span>
+          <div id="turn-mode-list" class="seg-list"></div>
+        </div>
+      </div>
+
+      <div class="settings-card">
+        <h3>云同步（CloudBase）</h3>
+        <div class="account-form">
+          <input id="cb-env" placeholder="CloudBase 环境 ID" autocomplete="off" />
+          <input id="cb-syncid" placeholder="同步账号（任意名称 / 邮箱）" autocomplete="off" />
+          <input id="cb-pass" type="password" placeholder="同步密码" autocomplete="off" />
+          <button class="wide-btn primary" id="btn-cb-connect">连接并匿名登录</button>
+        </div>
+        <div class="sync-row">
+          <button class="wide-btn" id="btn-cb-upload">⬆ 上传到云端</button>
+          <button class="wide-btn" id="btn-cb-download">⬇ 从云端下载</button>
+        </div>
+        <p class="settings-note" id="cb-status">未连接</p>
+        <p class="settings-note">需自备腾讯云 CloudBase 环境：创建环境后，在「登录授权」开启<b>匿名登录</b>，在数据库创建集合 <b>moyue_sync</b>，并在「安全域名」加入本应用域名（即你部署后的访问域名）。数据以你的密码端到端加密（AES-GCM）后存储，服务器不可读，他人即使拿到密文也无法解密。</p>
+      </div>
+
+      <div class="settings-card">
+        <h3>数据</h3>
+        <button class="wide-btn" id="btn-export">导出备份</button>
+        <button class="wide-btn primary" id="btn-export-corrected">⬇ 导出修正版 txt（含纠错+替换）</button>
+        <button class="wide-btn" id="btn-import-backup">导入备份</button>
+        <p class="settings-note">「导出修正版 txt」会把全部纠错和替换合并进正文，生成一份干净的 .txt 存到手机——这就是你改好的准确文档，可长期留存或覆盖原件。</p>
+        <input id="backup-input" type="file" accept=".json" hidden />
+        <p class="settings-note" id="sync-note"></p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ 粘贴导入弹窗 ============ -->
+  <div id="paste-modal" class="modal" hidden>
+    <div class="modal-mask"></div>
+    <div class="modal-panel">
+      <div class="modal-head">
+        <span>粘贴文本导入</span>
+        <button class="icon-btn" id="btn-paste-close">×</button>
+      </div>
+      <input id="paste-title" class="paste-input" placeholder="书名（可选，默认「粘贴文本」）" autocomplete="off" />
+      <textarea id="paste-text" class="edit-text" rows="8" placeholder="把小说文本粘贴到这里…&#10;&#10;支持直接粘贴章节内容，系统会自动识别章节结构。"></textarea>
+      <div class="modal-actions">
+        <button class="wide-btn ghost" id="btn-paste-cancel">取消</button>
+        <button class="wide-btn primary" id="btn-paste-save">导入书架</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 重命名书本 -->
+  <div id="rename-modal" class="modal" hidden>
+    <div class="modal-mask" id="rename-mask"></div>
+    <div class="modal-panel">
+      <div class="modal-head">
+        <span>重命名书本</span>
+        <button class="icon-btn" id="rename-cancel">×</button>
+      </div>
+      <input id="rename-input" class="paste-input" placeholder="请输入新的书名" autocomplete="off" />
+      <div class="modal-actions">
+        <button class="wide-btn ghost" id="rename-cancel2">取消</button>
+        <button class="wide-btn primary" id="rename-save">保存</button>
+      </div>
+    </div>
+  </div>
+  </div>
+
+  <!-- ============ 字体快速面板 ============ -->
+  <div id="font-pop" class="pop-panel" hidden>
+    <div class="pop-row">
+      <span>A-</span>
+      <input type="range" id="pop-font-size" min="14" max="28" step="1" />
+      <span>A+</span>
+    </div>
+    <div class="pop-row">
+      <span>行距</span>
+      <input type="range" id="pop-line-height" min="1.4" max="2.4" step="0.1" />
+    </div>
+    <div class="pop-section">
+      <div class="pop-section-label">背景</div>
+      <div id="font-pop-theme" class="theme-list pop"></div>
+    </div>
+  </div>
+
+  <!-- ============ 目录 / 书签抽屉 ============ -->
+  <div id="toc-drawer" class="drawer" hidden>
+    <div class="drawer-mask" id="drawer-mask"></div>
+    <div class="drawer-panel">
+      <div class="drawer-head">
+        <div class="drawer-tabs">
+          <button class="dtab active" data-tab="toc">目录</button>
+          <button class="dtab" data-tab="bm">书签</button>
+        </div>
+        <button class="icon-btn" id="toc-close">×</button>
+      </div>
+      <div class="drawer-body">
+        <div id="toc-list" class="toc-list"></div>
+        <div id="bm-list" class="bm-list" hidden></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ 按页数跳转（底部弹窗 + 滑动条，不弹键盘） ============ -->
+  <div id="jump-modal" class="modal jump-modal" hidden>
+    <div class="modal-mask" id="jump-mask"></div>
+    <div class="modal-panel jump-panel">
+      <div class="modal-head">
+        <span>跳转到指定页</span>
+        <button class="icon-btn" id="jump-close">×</button>
+      </div>
+      <div class="jump-body">
+        <div class="jump-readout"><span id="jump-cur">1</span> / <span id="jump-total">1</span> 页</div>
+        <input type="range" id="jump-range" class="jump-range" min="1" max="1" step="1" value="1" />
+        <div class="jump-scale">
+          <span>第 1 页</span>
+          <span id="jump-scale-end">末页</span>
+        </div>
+      </div>
+      <div class="modal-actions">
+        <button class="wide-btn ghost" id="jump-cancel">取消</button>
+        <button class="wide-btn primary" id="jump-confirm">跳转</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ 段落纠错弹窗（点击正文段落 → 弹出编辑本段） ============ -->
+  <div id="edit-modal" class="modal edit-modal" hidden>
+    <div class="modal-mask" id="edit-mask"></div>
+    <div class="modal-panel">
+      <div class="modal-head">
+        <span>纠错 · 修改本段</span>
+        <button class="icon-btn" id="btn-edit-close">×</button>
+      </div>
+      <textarea id="edit-text" class="edit-text" rows="6" placeholder="修改本段文字…"></textarea>
+      <div class="modal-tip">修改后点「保存」，整段替换；如需还原可清空后保存。</div>
+      <div class="modal-actions">
+        <button class="wide-btn ghost" id="btn-edit-cancel">取消</button>
+        <button class="wide-btn primary" id="btn-edit-save">保存</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ 查找 / 替换（作用于全书正文，复用纠错 edits 持久化） ============ -->
+  <div id="find-replace-modal" class="modal find-replace-modal" hidden>
+    <div class="modal-mask" id="fr-mask"></div>
+    <div class="modal-panel">
+      <div class="modal-head">
+        <span>查找 / 替换</span>
+        <button class="icon-btn" id="fr-close">×</button>
+      </div>
+      <div class="fr-row">
+        <input id="fr-find" class="fr-input" type="text" placeholder="查找内容" />
+      </div>
+      <div class="fr-row">
+        <input id="fr-repl" class="fr-input" type="text" placeholder="替换为（留空＝仅查找）" />
+      </div>
+      <div id="fr-status" class="fr-status">输入内容后点「查找」</div>
+      <div class="modal-actions">
+        <button class="wide-btn ghost" id="fr-find-btn">查找</button>
+        <button class="wide-btn ghost" id="fr-next">下一处</button>
+        <button class="wide-btn primary" id="fr-replace-all">全部替换</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="toast" class="toast" hidden></div>
+
+  <script src="vendor/tcb.js"></script>
+  <script src="app.js?v=20260824i"></script>
+  <script src="reader.js?v=20260824i"></script>
+</body>
+</html>
