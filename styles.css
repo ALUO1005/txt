@@ -180,10 +180,10 @@ html.uc .view { height: 100%; }
   inset: 0;
   width: 100%;
   max-width: 100%;
-  /* 顶部预留 = 安全区 + 顶栏高度(~44) + 留白；底部预留 = 安全区 + 底栏(~52) + 留白。
-     顶/底栏为 absolute 浮层，此 padding 保证正文首尾行落在浮层之上、不被遮挡，
-     且浮层显隐时正文位置恒定不动 */
-  padding: calc(env(safe-area-inset-top) + 52px) 14px calc(env(safe-area-inset-bottom) + 64px);
+  /* 满屏铺字：顶/底栏均为 absolute 浮层，用户明确接受「底栏显示时覆盖文字、隐藏时文字布满全屏」。
+     故此处只留安全区 + 极小(8px)缓冲防文字贴边，不再为底栏预留 64px（那是之前紫框空白带的根因）。
+     文字图层是 position:absolute;inset:0，与底栏浮层互不干扰 → 显隐底栏时正文零重排、零跳动。 */
+  padding: calc(env(safe-area-inset-top) + 8px) 14px calc(env(safe-area-inset-bottom) + 8px);
   box-sizing: border-box;
   overflow: hidden;
   word-break: break-word;

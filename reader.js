@@ -38,14 +38,15 @@ const Reader = (function () {
       winW = document.documentElement.clientWidth;
     if (!winW || winW < 50) winW = 360;
     /* n2 版：reader-topbar 与 reader-bottombar 是 position:absolute 浮层、不占 flex 高度，
-       所以这里不能再硬扣 TOPBAR/BOTBAR。availH 实际只需扣 .fp-content 的 padding
-       上 + 下（含 env(safe-area-inset)）。真实 CSS padding = 顶 52 + 底 64；
-       PAD_TOP/PAD_BOT 在真实值上各留 ~12px 缓冲，吸收 safe-area 在部分机型返回异常的情况，
-       确保预估 ≤ 实际可视高（宁少不多，绝不让末行溢出被 overflow:hidden 裁切）。 */
+       所以这里不再硬扣 TOPBAR/BOTBAR。用户明确需求：底栏隐藏时文字布满全屏（含原 64px 让位带），
+       底栏显示时允许覆盖文字。故 .fp-content padding 已改为「安全区 + 8px」极小缓冲（见 styles.css）。
+       PAD_TOP/PAD_BOT 取 8，紧贴真实 CSS padding(8+safe-area)：文字只渲染到 content box 内，
+       超出部分落入 padding 区仍可见、不被 overflow:hidden 裁到屏外；底栏隐藏时可见、显示时覆盖（已接受）。
+       不再保守偏小，目的就是让末行尽量贴底、消除紫框空白带。 */
     const TOPBAR = 0, BOTBAR = 0;
     const vpH = Math.max(200, winH);
-    /* .fp-content padding: env(safe-area-inset-top) + 52px 顶，env(safe-area-inset-bottom) + 64px 底 */
-    const PAD_TOP = 64, PAD_BOT = 76, PAD_X = 28;
+    /* .fp-content padding: env(safe-area-inset-top) + 8px 顶，env(safe-area-inset-bottom) + 8px 底 */
+    const PAD_TOP = 8, PAD_BOT = 8, PAD_X = 28;
     return {
       vw: Math.max(160, winW - PAD_X),
       vh: Math.max(120, vpH - PAD_TOP - PAD_BOT),
