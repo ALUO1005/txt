@@ -155,9 +155,11 @@ html.uc .view { height: 100%; }
 .reader-title { flex: 1; font-size: 15px; text-align: center;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 /* 正文视区：固定铺满整屏（含顶/底安全区），是永远不动的“第一图层” */
-.reader-viewport { flex: 1 1 auto; min-height: 0; overflow: hidden; position: relative;
-  height: 0; touch-action: none; -ms-touch-action: none; }
-.reader-viewport { position: absolute; inset: 0; }   /* 铺满全屏，顶/底栏浮于其上 */
+/* 正文视区：绝对定位铺满 #view-reader（.view 已是 position:absolute;inset:0;height:100% 满屏定位上下文）。
+   关键点：绝对定位元素若同时写 top:0;bottom:0 与 height:0，height:0 会胜出把视区塌成 0 高，
+   内部 .reader-stage / .fp-content 全被 overflow:hidden 裁成空白 → 表现成「文档打不开」。
+   因此这里只用 inset:0 拉伸，绝不写 height:0。 */
+.reader-viewport { position: absolute; inset: 0; overflow: hidden; touch-action: none; -ms-touch-action: none; }
 .reader-stage { position: absolute; inset: 0; perspective: 1800px; perspective-origin: 0% 50%; }
 /* 翻页层：父 .reader-stage 提供 perspective，子 rotateY 即可呈现 3D 翻页效果。
    **不要**给 .flip-page 加 transform-style: preserve-3d —— 嵌套 3D 上下文会让

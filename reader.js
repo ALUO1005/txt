@@ -39,12 +39,13 @@ const Reader = (function () {
     if (!winW || winW < 50) winW = 360;
     /* n2 版：reader-topbar 与 reader-bottombar 是 position:absolute 浮层、不占 flex 高度，
        所以这里不能再硬扣 TOPBAR/BOTBAR。availH 实际只需扣 .fp-content 的 padding
-       上 + 下（含 env(safe-area-inset)）。PAD_TOP/PAD_BOT 含估算的安全区 ~20px + 真实 52/64 */
+       上 + 下（含 env(safe-area-inset)）。真实 CSS padding = 顶 52 + 底 64；
+       PAD_TOP/PAD_BOT 在真实值上各留 ~12px 缓冲，吸收 safe-area 在部分机型返回异常的情况，
+       确保预估 ≤ 实际可视高（宁少不多，绝不让末行溢出被 overflow:hidden 裁切）。 */
     const TOPBAR = 0, BOTBAR = 0;
     const vpH = Math.max(200, winH);
-    /* .fp-content padding: env(safe-area-inset-top) + 52px 顶，env(safe-area-inset-bottom) + 64px 底；
-       PAD_TOP/PAD_BOT 取大保守值，确保预估 ≤ 实际可视高 */
-    const PAD_TOP = 96, PAD_BOT = 98, PAD_X = 28;
+    /* .fp-content padding: env(safe-area-inset-top) + 52px 顶，env(safe-area-inset-bottom) + 64px 底 */
+    const PAD_TOP = 64, PAD_BOT = 76, PAD_X = 28;
     return {
       vw: Math.max(160, winW - PAD_X),
       vh: Math.max(120, vpH - PAD_TOP - PAD_BOT),
@@ -135,13 +136,13 @@ const Reader = (function () {
     const charW = fontSize * 0.85;
     const charsPerLine = Math.max(12, Math.floor(innerW / charW) - 1);
 
-    /* 行数估算 —— 配合 CSS .fp-content p { margin: 0 0 0.5em }（段间距从 0.9em 砍半）。
-       effectiveLineH = lineH × 1.2：1.0 行高 + 0.2 段间距分摊，
-       单页能塞 10~14 行视觉、装填率 80~94%，末行永远不出 padding 边界。
-       外加 -1 行 buffer 吸收渲染折行差异。 */
-    const effectiveLineH = lineH * 1.2;
+    /* 行数估算 —— 关键：段间距已在下方「聚合」逻辑里用 gapLines 精确计入（每遇段边界加 gapLines 行），
+       所以这里 effectiveLineH 直接用 lineH（1 行高），绝不另乘系数，否则段间距会被重复扣减 → 页面偏空。
+       -2 行 buffer 吸收渲染折行/安全区差异，确保末行永远落在 fp-content 版心内、不被 overflow:hidden 裁切。
+       gapLines 必须与 CSS .fp-content p { margin: 0 0 0.5em } 保持一致：0.5em / lineHeight。 */
+    const effectiveLineH = lineH;
     const linesPerPage = Math.max(8, Math.floor(availH / effectiveLineH) - 1);
-    const gapLines = 0.9 / lhNum;  /* 段间隙 0.9em 转成行数比（保留供其它分支兼容） */
+    const gapLines = 0.5 / lhNum;  /* 段间隙 0.5em 转成行数比，与 CSS margin:0 0 0.5em 严格对应 */
     const indentChars = 2;          /* text-indent: 2em → 2 个汉字宽度 */
 
     /* ---- 1) 按纯字符数切行（每段先切成行块） ---- */
