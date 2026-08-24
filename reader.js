@@ -126,17 +126,21 @@ const Reader = (function () {
     const innerW = stage.vw;
     const availH = stage.vh;
 
-    /* charsPerLine 估算：汉字近似等宽 1em，混排按 0.85em 偏保守；
-       + 1 行 buffer 吸收 UC 字体回退导致的实际宽度偏大；
+    /* charsPerLine 估算：汉字近似等宽 1em；但嵌入的手写体（萌萌/肖象/小苹果/小萝莉）
+       单字宽度普遍 1.1~1.3em，用 0.85 会让估算每行装得比实际多 → 真实折行多出 1 行 →
+       末行被 .fp-content 的 overflow:hidden 齐腰裁切。
+       改为 0.65 偏保守：宁可少算每行字数（每页少装几行无害），也不让真实折行超出版心。
        Math.max(12, ...) 保底：避免 innerW 算回极端小值时 charsPerLine=1 导致"每行一字"。
        真正决定每行能装多少字的，是 CSS 上 .fp-content p { width:100% } 容器宽度 +
        浏览器自身的 word-break 折行——这里 charsPerLine 仅用来估算单页能塞多少行，
        即便估算偏保守只是单页少装几行（无害），不会让每行 1 字 */
-    const charW = fontSize * 0.85;
+    const charW = fontSize * 0.65;
     const charsPerLine = Math.max(12, Math.floor(innerW / charW) - 1);
 
-    /* 行数 / 段间距（与 CSS .fp-content p { margin: 0 0 0.9em; line-height: var(--line-height) } 一致） */
-    const linesPerPage = Math.max(8, Math.floor(availH / lineH));
+    /* 行数 / 段间距（与 CSS .fp-content p { margin: 0 0 0.9em; line-height: var(--line-height) } 一致）
+       linesPerPage 额外扣 1 行作为渲染折行兜底缓冲：手写体按 0.65 估算后真实折行通常
+       仍会比估算多 0~1 行，扣 1 行可确保末行永远落在版心内、不被 overflow:hidden 裁切 */
+    const linesPerPage = Math.max(8, Math.floor(availH / lineH) - 1);
     const gapLines = 0.9 / lhNum;  /* 段间隙 0.9em 转成行数比，直接与 lineHeight 公式相容 */
     const indentChars = 2;          /* text-indent: 2em → 2 个汉字宽度 */
 
