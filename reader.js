@@ -24,35 +24,36 @@ const Reader = (function () {
   /* ---------- 视口尺寸 ----------
      计算"可视区高度"为分页服务，必须扣除浏览器自身的 chrome：
      - 标准浏览器/微信：visualViewport.height 通常等于 innerHeight（地址栏已隐藏）
-     - UC 浏览器：底部 navbar (~52px) 是浏览器 UI，**不**应算进文字可视区；
-       UC 旧内核 visualViewport 不可靠，visualViewport.height 与 innerHeight 几乎相等时未扣 chrome → 手动减 52 兜底；
-       新版 UC visualViewport 已扣过 chrome（与 innerHeight 差 ≥ 60）就不再扣。
+     - UC 浏览器：底部 navbar (~52px) 是浏览器浮层，但我们改用「fp-content 的 bottom 让位」
+       (html.uc .fp-content { bottom: 52px } 让文字停在 navbar 之上)，而不是粗暴扣可用高——
+       避免双扣导致页面溢出到屏幕外、双扣也省了。视觉视口仍用 visualViewport 优先，
+       但 vpH 直接返回 innerHeight/vvH 的真实物理值（不再 -52），bottomChrome 字段让 paginate 与
+       fp-content 让位行为解耦。
      - 任何 < 100px 或 ≥ 5000px 的值都视为失真，跳过该级 fallback
      宽度同理：多级 fallback，避免 UC 旧内核 clientWidth 返回 0/< 50 */
   function getStageInnerSize() {
     let vvH = window.visualViewport ? window.visualViewport.height : 0;
     let innerH = window.innerHeight || 0;
-    let winH = 0;
+    let vpH = 0;
     const isUC = /UCBrowser|UCWEB|UcWeb/i.test(navigator.userAgent);
     const isWX = /MicroMessenger/i.test(navigator.userAgent);
 
+    /* vpH 用物理高度（fp-content 自己让位，不再扣 navbar）：让 fp-content + 让位 = 完整文字空间
+       与物理窗口严格对齐。 */
     if (vvH >= 100 && vvH < 5000) {
-      if (isUC && innerH >= 100 && innerH - vvH < 60) {
-        /* UC 旧内核 visualViewport 未扣底部 navbar：用 innerHeight - 52 */
-        winH = innerH - 52;
-      } else {
-        /* 标准浏览器 / 微信 / 新版 UC：visualViewport 已是真实可视区 */
-        winH = vvH;
-      }
+      vpH = vvH; /* 标准/微信/新版 UC：visualViewport 已是真实可视区 */
     } else if (innerH >= 100 && innerH < 5000) {
-      winH = innerH;
-      if (isUC) winH -= 52;
+      vpH = innerH;
     } else if (document.documentElement && document.documentElement.clientHeight >= 100) {
-      winH = document.documentElement.clientHeight;
+      vpH = document.documentElement.clientHeight;
     } else {
-      winH = 640;
+      vpH = 640;
     }
-    if (winH < 200) winH = 640;
+    if (vpH < 200) vpH = 640;
+
+    /* fp-content 让位高度：UC navbar 物理高度（CSS 同步设 --content-bottom）。
+       非 UC 上让位 = 0，fp-content 满屏铺字。 */
+    const bottomChrome = isUC ? 52 : 0;
 
     /* 宽度多级 fallback（uc 旧内核 clientWidth 失真） */
     let winW = 0;
@@ -64,19 +65,39 @@ const Reader = (function () {
       winW = document.documentElement.clientWidth;
     if (!winW || winW < 50) winW = 360;
 
-    /* fp-content padding: env(safe-area-inset-top) + 8px 顶, env(safe-area-inset-bottom) + 8px 底（用户接受底栏显时盖字、隐藏时满屏）。
-       PAD_TOP/PAD_BOT 与 CSS .fp-content padding 8px+safe-area 严格对齐。 */
+    /* fp-content padding: env(safe-area-inset-top) + 8px 顶, env(safe-area-inset-bottom) + 8px 底
+       （用户接受底栏显时盖字、隐藏时满屏）。vh 是 fp-content 真实可用高（已扣让位 + padding）。
+       注：让位仅压缩 fp-content 的 bottom，padding 与让位不重复计算。 */
     const PAD_TOP = 8, PAD_BOT = 8, PAD_X = 28;
-    const vpH = winH;
+    const stageH = vpH - bottomChrome;       /* fp-content 真实高度 */
     return {
       vw: Math.max(160, winW - PAD_X),
-      vh: Math.max(120, vpH - PAD_TOP - PAD_BOT),
-      vpH,
+      vh: Math.max(120, stageH - PAD_TOP - PAD_BOT),
+      vpH,                                    /* 物理窗口高（给 vp.style.height 用） */
+      bottomChrome,                            /* UC=52, 其他=0，给 fp-content.style.bottom 与分页 buffer 用 */
       winW,
       rawInnerH: innerH,
       rawVvH: vvH,
       ua: isUC ? 'uc' : (isWX ? 'wx' : 'std')
     };
+  }
+
+  /* 把视觉视口/UC 让位应用到 DOM（不读 DOM，纯写 style）——
+     resize / visualViewport.resize 时也要重设（UC 切全屏/分屏 vpH 变化）。
+     open() 与 resize 回调都会复用此函数，避免 UC 让位 logic 在多处重复导致漂移。 */
+  function applyUCLayout() {
+    const stage = getStageInnerSize();
+    const vp = document.getElementById('reader-viewport');
+    if (vp && stage.vpH) {
+      vp.style.height = stage.vpH + 'px';
+      vp.style.flex = '0 0 ' + stage.vpH + 'px';
+    }
+    /* fp-content bottom 让位：UC = 52, 非 UC = 0（满屏铺字）。
+       双保险：CSS 已是 html.uc .fp-content { --content-bottom: 52px }，
+       内联 style 在 UC 旧内核解析 CSS 变量失真时仍兜底。 */
+    document.querySelectorAll('.fp-content').forEach(fc => {
+      fc.style.bottom = (stage.bottomChrome || 0) + 'px';
+    });
   }
 
   /* ---------- 纠错数据应用（仅用于保留已保存的纠错结果，无编辑 UI） ---------- */
@@ -667,14 +688,14 @@ const Reader = (function () {
     window.addEventListener('resize', () => {
       if (!book) return;
       clearTimeout(resizeTimer);
-      resizeTimer = setTimeout(() => rerenderKeepingChar(firstOrigStart(index)), 200);
+      resizeTimer = setTimeout(() => { rerenderKeepingChar(firstOrigStart(index)); applyUCLayout(); }, 200);
     });
     /* visualViewport.resize（UC 切全屏/分屏、弹出/收起键盘、等）→ 重排 */
     if (window.visualViewport) {
       window.visualViewport.addEventListener('resize', () => {
         if (!book) return;
         clearTimeout(resizeTimer);
-        resizeTimer = setTimeout(() => rerenderKeepingChar(firstOrigStart(index)), 200);
+        resizeTimer = setTimeout(() => { rerenderKeepingChar(firstOrigStart(index)); applyUCLayout(); }, 200);
       });
     }
   }
@@ -850,22 +871,22 @@ const Reader = (function () {
     frontEl.style.transform = ''; backEl.style.transform = '';
     frontEl.style.zIndex = ''; backEl.style.zIndex = '';
 
-    /* UC 兼容（极简化）：仅做高度兜底与字体微调，**不再**为 .fp-content 写 inline width/padding。
-       UC 旧内核 visualViewport 与 innerHeight 几乎相等且未扣底部 navbar(~52px)，
-       这里用新 getStageInnerSize 拿真实 vpH（已扣 navbar）赋给 viewport.height，
-       保证 fp-content 的盒子高度与分页估算严格对齐——不再"末行被切"。 */
+    /* UC 兼容（极简化）：仅做高度兜底与字体微调。
+       关键：用新 getStageInnerSize 拿 vpH（真实物理高，不扣 navbar）赋给 viewport.height，
+       同步把 bottomChrome 写到 fp-content.style.bottom（CSS 变量路径已够，但写 inline style
+       在 UC 旧内核解析 CSS 变量不稳时仍能兜住），让最后一行文字真实停在 navbar 之上不被遮挡。 */
     if (/UCBrowser|UCWEB|UcWeb/i.test(navigator.userAgent)) {
       if (!document.documentElement.classList.contains('uc')) {
         document.documentElement.classList.add('uc');
       }
       try {
-        const vp = document.getElementById('reader-viewport');
-        const stage = getStageInnerSize();
-        if (vp && stage.vpH) {
-          vp.style.height = stage.vpH + 'px';
-          vp.style.flex = '0 0 ' + stage.vpH + 'px';
-        }
+        applyUCLayout();
       } catch (e) { /* 兜底失败也不影响主流程 */ }
+    } else {
+      /* 非 UC：fp-content 仍满屏铺字（html.uc class 不存在 → --content-bottom 默认 0，
+         这里双保险显式设 bottom:0 避免上次切到 UC 后残留 52px）。 */
+      const fps = document.querySelectorAll('.fp-content');
+      fps.forEach(fc => { fc.style.bottom = '0px'; });
     }
 
     const loading = document.getElementById('reader-loading');
