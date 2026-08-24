@@ -316,59 +316,6 @@ async function handleImport(files) {
   else if (!imported && skipped) showToast(`未导入，${skipped} 个文件被跳过`);
 }
 
-/* ---------- 待导入底栏小条：选完文件自动累积，不弹窗 ----------
-   手机内置浏览器（微信/UC）的文件选择器长按多选常常不可用，
-   因此改为：每次从系统选 1 本 → 静默累积到底栏小条 → 够了点「导入」。
-   底栏小条自动出现/隐藏，零打扰。 */
-let pendingFiles = []; // { file }
-
-function addToPending(files) {
-  let added = 0;
-  for (const f of files) {
-    const key = f.name + '|' + (f.size || 0);
-    if (pendingFiles.some(p => (p.file.name + '|' + (p.file.size || 0)) === key)) {
-      continue;
-    }
-    pendingFiles.push({ file: f });
-    added++;
-  }
-  if (added) {
-    renderBar();
-    showToast('已加入「' + (pendingFiles[pendingFiles.length - 1].file.name) + '」· 共 ' + pendingFiles.length + ' 本');
-  }
-}
-function renderBar() {
-  const bar = document.getElementById('import-bar');
-  if (!bar) return;
-  if (!pendingFiles.length) { bar.hidden = true; return; }
-  bar.hidden = false;
-  document.getElementById('bar-count').textContent = pendingFiles.length;
-  document.getElementById('bar-selcount').textContent = pendingFiles.length;
-}
-function clearPending() {
-  if (!pendingFiles.length) return;
-  pendingFiles = [];
-  renderBar();
-  showToast('已清空待选');
-}
-async function importPending() {
-  if (!pendingFiles.length) return;
-  const files = pendingFiles.map(p => p.file);
-  pendingFiles = [];
-  renderBar();
-  await handleImport(files);
-}
-
-/* ---------- 新手引导：仅首次提示如何获得真正的"文件列表多选/全选" ---------- */
-function maybeShowImportGuide() {
-  if (sessionStorage.getItem('moyue-guide-shown')) return;
-  const isInAppUA = /MicroMessenger|UCBrowser|QQBrowser|HuaweiBrowser|MiuiBrowser|VivoBrowser|OppoBrowser|DingTalk|WeWork|QQ\/|DingTalk/i.test(navigator.userAgent);
-  if (!isInAppUA) return; // 在普通浏览器里没必要弹
-  sessionStorage.setItem('moyue-guide-shown', '1');
-  document.getElementById('import-guide').hidden = false;
-}
-function closeImportGuide() { document.getElementById('import-guide').hidden = true; }
-
 /* ---------- 账号 ---------- */
 async function loadAccount() { App.account = await idbGet('account', 'me'); renderAccount(); }
 function renderAccount() {
@@ -567,20 +514,10 @@ function bindEvents() {
   const fileInput = document.getElementById('file-input');
   fileInput.addEventListener('change', (e) => {
     const files = Array.from(e.target.files || []);
-    if (files.length) addToPending(files);
+    if (files.length) handleImport(files);
     e.target.value = '';
   });
   document.getElementById('btn-import-fab').addEventListener('click', () => fileInput.click());
-
-  // 待导入底栏小条（无弹窗）
-  document.getElementById('bar-addmore').addEventListener('click', () => fileInput.click());
-  document.getElementById('bar-clear').addEventListener('click', clearPending);
-  document.getElementById('bar-import').addEventListener('click', importPending);
-
-  // 新手引导
-  document.getElementById('guide-close').addEventListener('click', closeImportGuide);
-  document.getElementById('guide-mask').addEventListener('click', closeImportGuide);
-  document.getElementById('guide-ok').addEventListener('click', closeImportGuide);
 
   // 拖拽导入（桌面端）
   const shelf = document.getElementById('view-bookshelf');
@@ -710,7 +647,5 @@ async function boot() {
   // 把书架设为 history 栈底，保证从书架按系统返回可正常退出网页
   history.replaceState({ view: 'bookshelf' }, '', location.pathname + location.search);
   showView('bookshelf', false);
-  // 首次启动若在微信/UC等内置浏览器内，自动弹一次新手引导（sessionStorage 仅触发一次）
-  setTimeout(maybeShowImportGuide, 400);
 }
 boot();
