@@ -316,62 +316,58 @@ async function handleImport(files) {
   else if (!imported && skipped) showToast(`未导入，${skipped} 个文件被跳过`);
 }
 
-/* ---------- 待导入清单：自攒多选 / 全选（不依赖系统文件选择器多选） ----------
-   手机内置浏览器（微信/UC）的文件选择器长按多选与 webkitdirectory 常常不可用，
-   因此改为：一次从系统选 1 本（系统单选永远可用）→ 累积进本页清单 → 清单内做多选/全选 → 一次性导入。 */
-let pendingFiles = []; // { file, selected }
+/* ---------- 待导入底栏小条：选完文件自动累积，不弹窗 ----------
+   手机内置浏览器（微信/UC）的文件选择器长按多选常常不可用，
+   因此改为：每次从系统选 1 本 → 静默累积到底栏小条 → 够了点「导入」。
+   底栏小条自动出现/隐藏，零打扰。 */
+let pendingFiles = []; // { file }
 
 function addToPending(files) {
   let added = 0;
   for (const f of files) {
     const key = f.name + '|' + (f.size || 0);
     if (pendingFiles.some(p => (p.file.name + '|' + (p.file.size || 0)) === key)) {
-      showToast('「' + f.name + '」已在清单中');
       continue;
     }
-    pendingFiles.push({ file: f, selected: true });
+    pendingFiles.push({ file: f });
     added++;
   }
-  if (added) openTray();
-  else renderTray();
-}
-function openTray() { renderTray(); document.getElementById('import-tray').hidden = false; }
-function closeTray() { document.getElementById('import-tray').hidden = true; }
-function renderTray() {
-  const list = document.getElementById('tray-list');
-  list.innerHTML = '';
-  document.getElementById('tray-count').textContent = pendingFiles.length;
-  document.getElementById('tray-selcount').textContent = pendingFiles.filter(p => p.selected).length;
-  if (!pendingFiles.length) {
-    list.innerHTML = '<div class="tray-empty">还没有选择文件，点「＋ 继续添加」选书</div>';
-    return;
+  if (added) {
+    renderBar();
+    showToast('已加入「' + (pendingFiles[pendingFiles.length - 1].file.name) + '」· 共 ' + pendingFiles.length + ' 本');
   }
-  pendingFiles.forEach((p, idx) => {
-    const row = document.createElement('div');
-    row.className = 'tray-row';
-    row.innerHTML =
-      '<label class="tray-check"><input type="checkbox" data-idx="' + idx + '"' + (p.selected ? ' checked' : '') + ' /></label>' +
-      '<span class="tray-name">' + escapeHtml(p.file.name) + '</span>' +
-      '<button class="tray-del" data-idx="' + idx + '">✕</button>';
-    row.querySelector('input[type=checkbox]').addEventListener('change', (e) => {
-      pendingFiles[idx].selected = e.target.checked;
-      document.getElementById('tray-selcount').textContent = pendingFiles.filter(x => x.selected).length;
-    });
-    row.querySelector('.tray-del').addEventListener('click', () => { pendingFiles.splice(idx, 1); renderTray(); });
-    list.appendChild(row);
-  });
 }
-function setTraySelectAll(on) {
-  pendingFiles.forEach(p => p.selected = on);
-  renderTray();
+function renderBar() {
+  const bar = document.getElementById('import-bar');
+  if (!bar) return;
+  if (!pendingFiles.length) { bar.hidden = true; return; }
+  bar.hidden = false;
+  document.getElementById('bar-count').textContent = pendingFiles.length;
+  document.getElementById('bar-selcount').textContent = pendingFiles.length;
 }
-async function importSelected() {
-  const sel = pendingFiles.filter(p => p.selected).map(p => p.file);
-  if (!sel.length) { showToast('请先选择要导入的书'); return; }
-  closeTray();
+function clearPending() {
+  if (!pendingFiles.length) return;
   pendingFiles = [];
-  await handleImport(sel);
+  renderBar();
+  showToast('已清空待选');
 }
+async function importPending() {
+  if (!pendingFiles.length) return;
+  const files = pendingFiles.map(p => p.file);
+  pendingFiles = [];
+  renderBar();
+  await handleImport(files);
+}
+
+/* ---------- 新手引导：仅首次提示如何获得真正的"文件列表多选/全选" ---------- */
+function maybeShowImportGuide() {
+  if (sessionStorage.getItem('moyue-guide-shown')) return;
+  const isInAppUA = /MicroMessenger|UCBrowser|QQBrowser|HuaweiBrowser|MiuiBrowser|VivoBrowser|OppoBrowser|DingTalk|WeWork|QQ\/|DingTalk/i.test(navigator.userAgent);
+  if (!isInAppUA) return; // 在普通浏览器里没必要弹
+  sessionStorage.setItem('moyue-guide-shown', '1');
+  document.getElementById('import-guide').hidden = false;
+}
+function closeImportGuide() { document.getElementById('import-guide').hidden = true; }
 
 /* ---------- 账号 ---------- */
 async function loadAccount() { App.account = await idbGet('account', 'me'); renderAccount(); }
@@ -576,14 +572,15 @@ function bindEvents() {
   });
   document.getElementById('btn-import-fab').addEventListener('click', () => fileInput.click());
 
-  // 待导入清单（自攒多选 / 全选）
-  document.getElementById('tray-close').addEventListener('click', closeTray);
-  document.getElementById('tray-mask').addEventListener('click', closeTray);
-  document.getElementById('tray-cancel').addEventListener('click', closeTray);
-  document.getElementById('tray-addmore').addEventListener('click', () => fileInput.click());
-  document.getElementById('tray-selall').addEventListener('click', () => setTraySelectAll(true));
-  document.getElementById('tray-selnone').addEventListener('click', () => setTraySelectAll(false));
-  document.getElementById('tray-import').addEventListener('click', importSelected);
+  // 待导入底栏小条（无弹窗）
+  document.getElementById('bar-addmore').addEventListener('click', () => fileInput.click());
+  document.getElementById('bar-clear').addEventListener('click', clearPending);
+  document.getElementById('bar-import').addEventListener('click', importPending);
+
+  // 新手引导
+  document.getElementById('guide-close').addEventListener('click', closeImportGuide);
+  document.getElementById('guide-mask').addEventListener('click', closeImportGuide);
+  document.getElementById('guide-ok').addEventListener('click', closeImportGuide);
 
   // 拖拽导入（桌面端）
   const shelf = document.getElementById('view-bookshelf');
@@ -713,5 +710,7 @@ async function boot() {
   // 把书架设为 history 栈底，保证从书架按系统返回可正常退出网页
   history.replaceState({ view: 'bookshelf' }, '', location.pathname + location.search);
   showView('bookshelf', false);
+  // 首次启动若在微信/UC等内置浏览器内，自动弹一次新手引导（sessionStorage 仅触发一次）
+  setTimeout(maybeShowImportGuide, 400);
 }
 boot();

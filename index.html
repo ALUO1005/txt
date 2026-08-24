@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
   <meta name="theme-color" content="#F7F1E3" />
   <title>墨阅 · TXT小说阅读器</title>
-  <link rel="stylesheet" href="styles.css?v=20260824k" />
+  <link rel="stylesheet" href="styles.css?v=20260824l" />
 </head>
 <body>
   <!-- ============ 书架页 ============ -->
@@ -33,6 +33,14 @@
     <!-- 右下角悬浮导入按钮 -->
     <button id="btn-import-fab" class="import-fab">＋ 导入TXT</button>
     <input id="file-input" type="file" accept=".txt,text/plain" multiple hidden />
+
+    <!-- 待导入底栏小条：选完文件自动累积到这里，不弹窗 -->
+    <div id="import-bar" class="import-bar" hidden>
+      <span class="bar-text">已选 <b id="bar-count">0</b> 本</span>
+      <button class="bar-btn ghost" id="bar-clear" title="清空待选">✕</button>
+      <button class="bar-btn" id="bar-addmore" title="再选几本">＋ 再选</button>
+      <button class="bar-btn primary" id="bar-import" title="一次性导入所选">✓ 导入 (<span id="bar-selcount">0</span>)</button>
+    </div>
 
   </section>
 
@@ -246,23 +254,24 @@
     </div>
   </div>
 
-  <!-- 待导入清单：自己挑、自己攒，多选/全选在本页完成，不依赖系统文件选择器 -->
-  <div id="import-tray" class="modal" hidden>
-    <div class="modal-mask" id="tray-mask"></div>
-    <div class="modal-panel">
+  <!-- 新手引导：怎么"在文件列表多选/全选"（仅首次自动弹出一次） -->
+  <div id="import-guide" class="modal" hidden>
+    <div class="modal-mask" id="guide-mask"></div>
+    <div class="modal-panel guide-panel">
       <div class="modal-head">
-        <span>待导入（已选 <b id="tray-count">0</b> 本）</span>
-        <button class="icon-btn" id="tray-close">×</button>
+        <span>新手引导 · 多选/全选导入</span>
+        <button class="icon-btn" id="guide-close">×</button>
       </div>
-      <div id="tray-list" class="tray-list"></div>
-      <div class="tray-actions">
-        <button class="wide-btn ghost" id="tray-selall">全选</button>
-        <button class="wide-btn ghost" id="tray-selnone">全不选</button>
-        <button class="wide-btn ghost" id="tray-addmore">＋ 继续添加</button>
-      </div>
+      <p class="guide-lead">在 <b>微信 / UC</b> 的内置浏览器里，文件管理器只允许<b>单选</b>，做不出图中那种多选/全选的列表，这是浏览器的安全限制。</p>
+      <p class="guide-line">👉 想用微信截图那样的多选/全选，<b>把链接在手机自带浏览器里打开</b>：</p>
+      <ol class="guide-steps">
+        <li>点右上角 <span class="kbd">···</span> 或 <span class="kbd">↓</span></li>
+        <li>选 <b>「在浏览器中打开」</b> / <b>「Safari 打开」</b> / <b>「Chrome 打开」</b></li>
+        <li>系统文件对话框出现，可长按多选、全选</li>
+      </ol>
+      <p class="guide-tip">💡 当前环境也能多次单选累积导入：每次点右下角「＋ 导入」选 1 本，等选够了一键导入。</p>
       <div class="modal-actions">
-        <button class="wide-btn ghost" id="tray-cancel">取消</button>
-        <button class="wide-btn primary" id="tray-import">导入所选（<span id="tray-selcount">0</span>）</button>
+        <button class="wide-btn primary" id="guide-ok">知道了</button>
       </div>
     </div>
   </div>
@@ -270,7 +279,7 @@
   <div id="toast" class="toast" hidden></div>
 
   <script src="vendor/tcb.js"></script>
-  <script src="app.js?v=20260824k"></script>
-  <script src="reader.js?v=20260824k"></script>
+  <script src="app.js?v=20260824l"></script>
+  <script src="reader.js?v=20260824l"></script>
 </body>
 </html>
