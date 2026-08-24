@@ -21,37 +21,61 @@ const Reader = (function () {
   const wait = ms => new Promise(r => setTimeout(r, ms));
   const clamp = p => Math.max(0, Math.min(pages.length - 1, p));
 
-  /* ---------- 测量（纯 CSS 公式 + 多级 fallback，不读 getBoundingClientRect） ---------- */
-  /* UC 旧内核对 getBoundingClientRect / clientWidth 都会返回失真值（甚至 0），
-     这里完全用 CSS 已知公式推算（fontSize × lineHeight × window.innerHeight），不再做 DOM 测量；
-     innerWidth 用多级 fallback：viewport().clientWidth → window.innerWidth → html.clientWidth → 360，
-     任何 < 50 的值在 UC 上都视为失真跳过，确保拿到真实可视宽度 */
+  /* ---------- 视口尺寸 ----------
+     计算"可视区高度"为分页服务，必须扣除浏览器自身的 chrome：
+     - 标准浏览器/微信：visualViewport.height 通常等于 innerHeight（地址栏已隐藏）
+     - UC 浏览器：底部 navbar (~52px) 是浏览器 UI，**不**应算进文字可视区；
+       UC 旧内核 visualViewport 不可靠，visualViewport.height 与 innerHeight 几乎相等时未扣 chrome → 手动减 52 兜底；
+       新版 UC visualViewport 已扣过 chrome（与 innerHeight 差 ≥ 60）就不再扣。
+     - 任何 < 100px 或 ≥ 5000px 的值都视为失真，跳过该级 fallback
+     宽度同理：多级 fallback，避免 UC 旧内核 clientWidth 返回 0/< 50 */
   function getStageInnerSize() {
-    /* viewport flex 区域 = window.innerHeight - topbar - bottombar */
-    const winH = window.innerHeight || document.documentElement.clientHeight || 640;
-    /* innerW 多级 fallback（uc 旧内核 clientWidth 失真到 < 50） */
+    let vvH = window.visualViewport ? window.visualViewport.height : 0;
+    let innerH = window.innerHeight || 0;
+    let winH = 0;
+    const isUC = /UCBrowser|UCWEB|UcWeb/i.test(navigator.userAgent);
+    const isWX = /MicroMessenger/i.test(navigator.userAgent);
+
+    if (vvH >= 100 && vvH < 5000) {
+      if (isUC && innerH >= 100 && innerH - vvH < 60) {
+        /* UC 旧内核 visualViewport 未扣底部 navbar：用 innerHeight - 52 */
+        winH = innerH - 52;
+      } else {
+        /* 标准浏览器 / 微信 / 新版 UC：visualViewport 已是真实可视区 */
+        winH = vvH;
+      }
+    } else if (innerH >= 100 && innerH < 5000) {
+      winH = innerH;
+      if (isUC) winH -= 52;
+    } else if (document.documentElement && document.documentElement.clientHeight >= 100) {
+      winH = document.documentElement.clientHeight;
+    } else {
+      winH = 640;
+    }
+    if (winH < 200) winH = 640;
+
+    /* 宽度多级 fallback（uc 旧内核 clientWidth 失真） */
     let winW = 0;
     const vp = viewport();
     if (vp && vp.clientWidth && vp.clientWidth >= 50) winW = vp.clientWidth;
     if ((!winW || winW < 50) && window.innerWidth && window.innerWidth >= 50) winW = window.innerWidth;
+    if ((!winW || winW < 50) && window.visualViewport && window.visualViewport.width >= 50) winW = window.visualViewport.width;
     if ((!winW || winW < 50) && document.documentElement && document.documentElement.clientWidth && document.documentElement.clientWidth >= 50)
       winW = document.documentElement.clientWidth;
     if (!winW || winW < 50) winW = 360;
-    /* n2 版：reader-topbar 与 reader-bottombar 是 position:absolute 浮层、不占 flex 高度，
-       所以这里不再硬扣 TOPBAR/BOTBAR。用户明确需求：底栏隐藏时文字布满全屏（含原 64px 让位带），
-       底栏显示时允许覆盖文字。故 .fp-content padding 已改为「安全区 + 8px」极小缓冲（见 styles.css）。
-       PAD_TOP/PAD_BOT 取 8，紧贴真实 CSS padding(8+safe-area)：文字只渲染到 content box 内，
-       超出部分落入 padding 区仍可见、不被 overflow:hidden 裁到屏外；底栏隐藏时可见、显示时覆盖（已接受）。
-       不再保守偏小，目的就是让末行尽量贴底、消除紫框空白带。 */
-    const TOPBAR = 0, BOTBAR = 0;
-    const vpH = Math.max(200, winH);
-    /* .fp-content padding: env(safe-area-inset-top) + 8px 顶，env(safe-area-inset-bottom) + 8px 底 */
+
+    /* fp-content padding: env(safe-area-inset-top) + 8px 顶, env(safe-area-inset-bottom) + 8px 底（用户接受底栏显时盖字、隐藏时满屏）。
+       PAD_TOP/PAD_BOT 与 CSS .fp-content padding 8px+safe-area 严格对齐。 */
     const PAD_TOP = 8, PAD_BOT = 8, PAD_X = 28;
+    const vpH = winH;
     return {
       vw: Math.max(160, winW - PAD_X),
       vh: Math.max(120, vpH - PAD_TOP - PAD_BOT),
       vpH,
-      winW
+      winW,
+      rawInnerH: innerH,
+      rawVvH: vvH,
+      ua: isUC ? 'uc' : (isWX ? 'wx' : 'std')
     };
   }
 
@@ -66,22 +90,21 @@ const Reader = (function () {
     });
   }
 
-  /* ---------- 分页（纯 charsPerLine 估算 + 行数累加，UC 上完全脱离 getBoundingClientRect） ----------
-     核心思想：UC 旧内核对 getBoundingClientRect/clientWidth 都会返回失真值（甚至 0），
-     不再做"实测 → 重切"，只做"估算 → 一刀切"，失败模式仅是"某段多/少一行"，
-     绝不会出现"每行 1~3 字 / 只占屏幕 40%"这种致命级崩坏。
-     - lineH = fontSize × lineHeight（CSS 标准公式，UC 也支持）
-     - charsPerLine ≈ floor(innerWidth / fontSize) - 1（汉字 ≈ 等宽 1em）
-     - 每段估算行数 = ceil((chars - firstLineIndent) / charsPerLine) + gapLines
-     渲染时浏览器自己负责"在 innerWidth 下让 chars 字符折成 N 行"（word-break: break-word） */
-  /* 不能出现在行首的字符（浏览器会把它们拉回上一行） */
+  /* ---------- 分页（累加法：每段精确按 lines*lineH + 段间距累计，超可用高开新页） ----------
+     核心思想：
+     - charsPerLine = floor(innerW / (fontSize * 0.95)) - 1
+       0.95 系数贴近 system 字体的汉字等宽（1em）；手写体偏宽时偏保守（不会高估每行字数）。
+     - 不用 floor(availH / lineH) - 1 这种粗估，改用**逐项累加**：
+       itemH = lines × lineH；段交界处 + 0.5em 段间距（与 CSS margin: 0 0 0.5em 对齐）
+       curH + segGap + itemH > usableH → 开新页
+     - usableH = availH - lineH*0.5（半行 buffer 吸收渲染/安全区/字宽估算误差）
+     决绝不会再出现「末行被 overflow:hidden 裁切」的根因：每页累加高度严格 ≤ usableH ≤ fp-content 实际高。 */
+  /* 不能出现在行首的字符 */
   const NO_START_SET = new Set('！？。，、；：）】》〉」』”’…—～·％‰°℃!?),.:;)]}%'.split(''));
-  /* 不能出现在行尾的字符（浏览器会把它们推到下一行） */
+  /* 不能出现在行尾的字符 */
   const NO_END_SET = new Set('（【《〈「『“‘·—([{'.split(''));
   let _consts = null;
   function measureConsts() {
-    /* 量 lineH 直接用 CSS 公式 fontSize * lineHeight —— 在任何内核都等价，
-       不再依赖 getBoundingClientRect（UC 上常返回 0/失真）*/
     const fontSize = App.settings.fontSize;
     const lh = App.settings.lineHeight || 1.8;
     return { lineH: fontSize * lh, fontSize, lineHeight: lh };
@@ -108,7 +131,7 @@ const Reader = (function () {
       firstLine = false;
     }
   }
-  /* 让出一帧（同步分页里大文件循环用 MessageChannel 不阻塞主线程，UC 上也不被定时器节流） */
+  /* 让出一帧 */
   function yieldFrame() {
     return new Promise(res => {
       if (typeof MessageChannel !== 'undefined') {
@@ -126,27 +149,25 @@ const Reader = (function () {
     const lineH = c.lineH;
     const lhNum = c.lineHeight;
 
-    /* ---- 视区像素（CSS 公式推算，不读 getBoundingClientRect） ---- */
     const stage = getStageInnerSize();
     const innerW = stage.vw;
     const availH = stage.vh;
 
-    /* 字符宽度：用户默认字体是 system（sys），汉字近似等宽 1em，混排按 0.85em 偏保守。
-       Math.max(12, ...) 保底避免极端小值。
-       真正决定每行能装多少字的，是 CSS .fp-content p { width:100% } + 浏览器 word-break 折行 */
-    const charW = fontSize * 0.85;
+    /* 字符宽度：汉字等宽 1em，0.95 系数稍微保守一点（手写体偏宽时不会高估每行字数）。
+       -1 给中文标点挤压点空间，留 1 字 buffer。 */
+    const charW = fontSize * 0.95;
     const charsPerLine = Math.max(12, Math.floor(innerW / charW) - 1);
 
-    /* 行数估算 —— 关键：段间距已在下方「聚合」逻辑里用 gapLines 精确计入（每遇段边界加 gapLines 行），
-       所以这里 effectiveLineH 直接用 lineH（1 行高），绝不另乘系数，否则段间距会被重复扣减 → 页面偏空。
-       -2 行 buffer 吸收渲染折行/安全区差异，确保末行永远落在 fp-content 版心内、不被 overflow:hidden 裁切。
-       gapLines 必须与 CSS .fp-content p { margin: 0 0 0.5em } 保持一致：0.5em / lineHeight。 */
-    const effectiveLineH = lineH;
-    const linesPerPage = Math.max(8, Math.floor(availH / effectiveLineH) - 1);
-    const gapLines = 0.5 / lhNum;  /* 段间隙 0.5em 转成行数比，与 CSS margin:0 0 0.5em 严格对应 */
-    const indentChars = 2;          /* text-indent: 2em → 2 个汉字宽度 */
+    /* 段间距高度：CSS .fp-content p { margin: 0 0 0.5em } → 0.5em = fontSize * 0.5 px */
+    const segGapH = fontSize * 0.5;
 
-    /* ---- 1) 按纯字符数切行（每段先切成行块） ---- */
+    /* 留半行 buffer 吸收渲染误差（安全区/字宽偏差/fp-content padding 等）。*/
+    const bufferH = lineH * 0.5;
+    const usableH = Math.max(lineH * 4, availH - bufferH);
+
+    const indentChars = 2;
+
+    /* ---- 1) 按字符数切行 ---- */
     const expanded = [];
     const CHUNK = 80;
     for (let i = 0; i < correctedParas.length; i++) {
@@ -156,37 +177,34 @@ const Reader = (function () {
       if ((i & (CHUNK - 1)) === (CHUNK - 1)) await yieldFrame();
     }
 
-    /* ---- 2) 累行数聚合成页（每段估算行数 = ceil(remChars / charsPerLine) + gapLines） ---- */
-    pages = []; let cur = []; let used = 0; let prevPara = -1;
+    /* ---- 2) 累加分页（精确按行高+段间距逐项累计，超可用高开新页） ---- */
+    pages = []; let cur = []; let curH = 0; let prevPara = -1;
     for (const it of expanded) {
+      let itemH;
       if (it.blank) {
-        const need = 1; /* 空段占 1 行 */
-        if (cur.length && used + need > linesPerPage) { pages.push(cur); cur = []; used = 0; }
-        cur.push(it); used += need; prevPara = it.paraIndex;
-        continue;
+        itemH = lineH; /* 空段占 1 行 */
+      } else {
+        const rem = it.end - it.start;
+        const lines = Math.max(1, Math.ceil(rem / charsPerLine));
+        itemH = lines * lineH;
       }
-      /* 段剩余字符估算行数（含段间隙） */
-      const remChars = (it.end - it.start);
-      const linesEst = Math.max(1, Math.ceil(remChars / charsPerLine));
-      const gap = (cur.length && prevPara !== it.paraIndex) ? gapLines : 0;
-      if (cur.length && used + gap + linesEst > linesPerPage) {
+      const segGap = (cur.length && prevPara !== it.paraIndex) ? segGapH : 0;
+
+      if (cur.length && curH + segGap + itemH > usableH) {
         pages.push(cur);
         cur = [it];
-        used = linesEst;
+        curH = itemH;
         prevPara = it.paraIndex;
       } else {
         cur.push(it);
-        used += gap + linesEst;
+        curH += segGap + itemH;
         prevPara = it.paraIndex;
       }
     }
     if (cur.length) pages.push(cur);
     if (pages.length === 0) pages.push([]);
 
-    /* ---- 3) 仅存 _consts 给 renderPageInto 用 ---- */
-    /* 显式刷新 _consts 给翻页或字号变化后 renderPageInto 使用 */
     _consts = c;
-    void lhNum; /* 标记使用，避免 lint 误删 */
   }
 
   /* ---------- 渲染到某一页层 ----------
@@ -645,11 +663,20 @@ const Reader = (function () {
     if (!isTouch) {
       vp.addEventListener('click', (e) => { handleTap(e.clientX, e.target); });
     }
+    /* window resize（系统字体大小变化、屏幕旋转）→ 重排 */
     window.addEventListener('resize', () => {
       if (!book) return;
       clearTimeout(resizeTimer);
       resizeTimer = setTimeout(() => rerenderKeepingChar(firstOrigStart(index)), 200);
     });
+    /* visualViewport.resize（UC 切全屏/分屏、弹出/收起键盘、等）→ 重排 */
+    if (window.visualViewport) {
+      window.visualViewport.addEventListener('resize', () => {
+        if (!book) return;
+        clearTimeout(resizeTimer);
+        resizeTimer = setTimeout(() => rerenderKeepingChar(firstOrigStart(index)), 200);
+      });
+    }
   }
 
   /* ---------- 章节 / 目录 / 书签 ---------- */
@@ -824,25 +851,19 @@ const Reader = (function () {
     frontEl.style.zIndex = ''; backEl.style.zIndex = '';
 
     /* UC 兼容（极简化）：仅做高度兜底与字体微调，**不再**为 .fp-content 写 inline width/padding。
-       上一版本（l）那种"强制给 fp-content 设 inline style"是 UC 上把布局算崩的元凶 —
-       UC 旧内核解析 inline inset:0 + box-sizing 时会把绝对定位盒子收成屏幕的 1/3 宽，
-       反而让文字只占左侧。彻底回归正常 CSS，让浏览器自己控制 fp-content 尺寸。 */
+       UC 旧内核 visualViewport 与 innerHeight 几乎相等且未扣底部 navbar(~52px)，
+       这里用新 getStageInnerSize 拿真实 vpH（已扣 navbar）赋给 viewport.height，
+       保证 fp-content 的盒子高度与分页估算严格对齐——不再"末行被切"。 */
     if (/UCBrowser|UCWEB|UcWeb/i.test(navigator.userAgent)) {
       if (!document.documentElement.classList.contains('uc')) {
         document.documentElement.classList.add('uc');
       }
       try {
-        /* 仅给 viewer 显式高度，防止 UC 把 viewport flex 高度算成 0；
-           不动 fp-content 的 width / padding，由 CSS 接管 */
         const vp = document.getElementById('reader-viewport');
-        const tb = document.getElementById('reader-topbar');
-        const bb = document.getElementById('reader-bottombar');
-        if (vp) {
-          const total = window.innerHeight || document.documentElement.clientHeight || 640;
-          const tH = tb ? tb.offsetHeight : 44;
-          const bH = bb ? bb.offsetHeight : 64;
-          vp.style.height = (total - tH - bH) + 'px';
-          vp.style.flex = '0 0 ' + (total - tH - bH) + 'px';
+        const stage = getStageInnerSize();
+        if (vp && stage.vpH) {
+          vp.style.height = stage.vpH + 'px';
+          vp.style.flex = '0 0 ' + stage.vpH + 'px';
         }
       } catch (e) { /* 兜底失败也不影响主流程 */ }
     }
