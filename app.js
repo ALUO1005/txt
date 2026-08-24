@@ -316,36 +316,62 @@ async function handleImport(files) {
   else if (!imported && skipped) showToast(`未导入，${skipped} 个文件被跳过`);
 }
 
-/* ---------- 粘贴文本导入 ---------- */
-async function importFromPaste() {
-  const titleInput = document.getElementById('paste-title');
-  const textInput = document.getElementById('paste-text');
-  const text = textInput.value.replace(/^\uFEFF/, '').trim();
-  if (!text) { showToast('请先粘贴文本内容'); return; }
-  if (text.length < 10) { showToast('文本太短，至少需要 10 个字符'); return; }
-  try {
-    const id = 'b' + hashStr('paste:' + (titleInput.value.trim() || '粘贴文本') + '|' + text.length + '|' + text.slice(0, 300));
-    const chapters = detectChapters(text);
-    const book = {
-      id,
-      title: (titleInput.value.trim() || '粘贴文本').slice(0, 50),
-      content: text, totalLen: text.length,
-      chapters, chapterCount: chapters.length,
-      bookmarks: [],
-      importedAt: Date.now(), lastReadAt: 0, lastReadChar: 0
-    };
-    await idbPut('books', book);
-    closePasteModal();
-    renderBookshelf();
-    showToast('已导入「' + book.title + '」');
-  } catch (e) { showToast('导入失败，请重试'); }
+/* ---------- 待导入清单：自攒多选 / 全选（不依赖系统文件选择器多选） ----------
+   手机内置浏览器（微信/UC）的文件选择器长按多选与 webkitdirectory 常常不可用，
+   因此改为：一次从系统选 1 本（系统单选永远可用）→ 累积进本页清单 → 清单内做多选/全选 → 一次性导入。 */
+let pendingFiles = []; // { file, selected }
+
+function addToPending(files) {
+  let added = 0;
+  for (const f of files) {
+    const key = f.name + '|' + (f.size || 0);
+    if (pendingFiles.some(p => (p.file.name + '|' + (p.file.size || 0)) === key)) {
+      showToast('「' + f.name + '」已在清单中');
+      continue;
+    }
+    pendingFiles.push({ file: f, selected: true });
+    added++;
+  }
+  if (added) openTray();
+  else renderTray();
 }
-function openPasteModal() {
-  document.getElementById('paste-title').value = '';
-  document.getElementById('paste-text').value = '';
-  document.getElementById('paste-modal').hidden = false;
+function openTray() { renderTray(); document.getElementById('import-tray').hidden = false; }
+function closeTray() { document.getElementById('import-tray').hidden = true; }
+function renderTray() {
+  const list = document.getElementById('tray-list');
+  list.innerHTML = '';
+  document.getElementById('tray-count').textContent = pendingFiles.length;
+  document.getElementById('tray-selcount').textContent = pendingFiles.filter(p => p.selected).length;
+  if (!pendingFiles.length) {
+    list.innerHTML = '<div class="tray-empty">还没有选择文件，点「＋ 继续添加」选书</div>';
+    return;
+  }
+  pendingFiles.forEach((p, idx) => {
+    const row = document.createElement('div');
+    row.className = 'tray-row';
+    row.innerHTML =
+      '<label class="tray-check"><input type="checkbox" data-idx="' + idx + '"' + (p.selected ? ' checked' : '') + ' /></label>' +
+      '<span class="tray-name">' + escapeHtml(p.file.name) + '</span>' +
+      '<button class="tray-del" data-idx="' + idx + '">✕</button>';
+    row.querySelector('input[type=checkbox]').addEventListener('change', (e) => {
+      pendingFiles[idx].selected = e.target.checked;
+      document.getElementById('tray-selcount').textContent = pendingFiles.filter(x => x.selected).length;
+    });
+    row.querySelector('.tray-del').addEventListener('click', () => { pendingFiles.splice(idx, 1); renderTray(); });
+    list.appendChild(row);
+  });
 }
-function closePasteModal() { document.getElementById('paste-modal').hidden = true; }
+function setTraySelectAll(on) {
+  pendingFiles.forEach(p => p.selected = on);
+  renderTray();
+}
+async function importSelected() {
+  const sel = pendingFiles.filter(p => p.selected).map(p => p.file);
+  if (!sel.length) { showToast('请先选择要导入的书'); return; }
+  closeTray();
+  pendingFiles = [];
+  await handleImport(sel);
+}
 
 /* ---------- 账号 ---------- */
 async function loadAccount() { App.account = await idbGet('account', 'me'); renderAccount(); }
@@ -542,33 +568,22 @@ async function saveSettings() { await idbPut('settings', App.settings); }
 
 /* ---------- 事件绑定 ---------- */
 function bindEvents() {
-  document.getElementById('file-input').addEventListener('change', (e) => {
-    if (e.target.files.length) handleImport(e.target.files);
+  const fileInput = document.getElementById('file-input');
+  fileInput.addEventListener('change', (e) => {
+    const files = Array.from(e.target.files || []);
+    if (files.length) addToPending(files);
     e.target.value = '';
   });
+  document.getElementById('btn-import-fab').addEventListener('click', () => fileInput.click());
 
-  // 导入文件夹（webkitdirectory：一次导入整个目录里的所有 .txt，相当于"全选"）
-  const dirInput = document.getElementById('file-input-dir');
-  if (dirInput) {
-    dirInput.addEventListener('change', (e) => {
-      const all = Array.from(e.target.files || []);
-      const txts = all.filter(f => /\.txt$/i.test(f.name) || f.type === 'text/plain');
-      if (txts.length) handleImport(txts);
-      else if (all.length) showToast('该文件夹内没有找到 .txt 文件');
-      e.target.value = '';
-    });
-  }
-  // 不支持 webkitdirectory 的浏览器（iOS Safari、部分内置浏览器）隐藏"导入文件夹"入口
-  if (!('webkitdirectory' in document.createElement('input'))) {
-    const fb = document.getElementById('btn-import-folder');
-    if (fb) fb.style.display = 'none';
-  }
-
-  // 粘贴导入
-  document.getElementById('btn-paste-import').addEventListener('click', openPasteModal);
-  document.getElementById('btn-paste-close').addEventListener('click', closePasteModal);
-  document.getElementById('btn-paste-cancel').addEventListener('click', closePasteModal);
-  document.getElementById('btn-paste-save').addEventListener('click', importFromPaste);
+  // 待导入清单（自攒多选 / 全选）
+  document.getElementById('tray-close').addEventListener('click', closeTray);
+  document.getElementById('tray-mask').addEventListener('click', closeTray);
+  document.getElementById('tray-cancel').addEventListener('click', closeTray);
+  document.getElementById('tray-addmore').addEventListener('click', () => fileInput.click());
+  document.getElementById('tray-selall').addEventListener('click', () => setTraySelectAll(true));
+  document.getElementById('tray-selnone').addEventListener('click', () => setTraySelectAll(false));
+  document.getElementById('tray-import').addEventListener('click', importSelected);
 
   // 拖拽导入（桌面端）
   const shelf = document.getElementById('view-bookshelf');

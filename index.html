@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
   <meta name="theme-color" content="#F7F1E3" />
   <title>墨阅 · TXT小说阅读器</title>
-  <link rel="stylesheet" href="styles.css?v=20260824j" />
+  <link rel="stylesheet" href="styles.css?v=20260824k" />
 </head>
 <body>
   <!-- ============ 书架页 ============ -->
@@ -19,28 +19,21 @@
 
     <div class="bookshelf-toolbar">
       <span class="hint">本地书架 · 阅读进度自动保存</span>
-      <div class="import-actions">
-        <label class="import-btn" title="从手机存储选择 .txt 文件（可一次多选）">
-          + 导入TXT
-          <input id="file-input" type="file" accept=".txt,text/plain" multiple hidden />
-        </label>
-        <label class="import-btn secondary" id="btn-import-folder" title="选择一个文件夹，一次性导入里面所有 .txt（等于全选）">
-          📁 导入文件夹
-          <input id="file-input-dir" type="file" webkitdirectory hidden />
-        </label>
-        <button class="import-btn secondary" id="btn-paste-import" title="粘贴文本内容直接导入">📋 粘贴导入</button>
-      </div>
     </div>
-    <p class="import-hint">💡 导入TXT 可一次选多本（文件框里按住多选 / 全选）；导入文件夹可整本导入。</p>
 
     <div id="bookshelf-list" class="bookshelf-list"></div>
     <div id="bookshelf-empty" class="empty-state">
       <div class="empty-emoji">📚</div>
       <p>书架空空如也</p>
-      <p class="empty-sub">点击右上角「导入TXT」开始阅读</p>
+      <p class="empty-sub">点击右下角「＋ 导入TXT」开始阅读</p>
     </div>
 
     <div id="import-progress" class="import-progress" hidden></div>
+
+    <!-- 右下角悬浮导入按钮 -->
+    <button id="btn-import-fab" class="import-fab">＋ 导入TXT</button>
+    <input id="file-input" type="file" accept=".txt,text/plain" multiple hidden />
+
   </section>
 
   <!-- ============ 阅读页 ============ -->  <section id="view-reader" class="view">
@@ -137,23 +130,6 @@
       </div>
     </div>
   </section>
-
-  <!-- ============ 粘贴导入弹窗 ============ -->
-  <div id="paste-modal" class="modal" hidden>
-    <div class="modal-mask"></div>
-    <div class="modal-panel">
-      <div class="modal-head">
-        <span>粘贴文本导入</span>
-        <button class="icon-btn" id="btn-paste-close">×</button>
-      </div>
-      <input id="paste-title" class="paste-input" placeholder="书名（可选，默认「粘贴文本」）" autocomplete="off" />
-      <textarea id="paste-text" class="edit-text" rows="8" placeholder="把小说文本粘贴到这里…&#10;&#10;支持直接粘贴章节内容，系统会自动识别章节结构。"></textarea>
-      <div class="modal-actions">
-        <button class="wide-btn ghost" id="btn-paste-cancel">取消</button>
-        <button class="wide-btn primary" id="btn-paste-save">导入书架</button>
-      </div>
-    </div>
-  </div>
 
   <!-- 重命名书本 -->
   <div id="rename-modal" class="modal" hidden>
@@ -270,10 +246,31 @@
     </div>
   </div>
 
+  <!-- 待导入清单：自己挑、自己攒，多选/全选在本页完成，不依赖系统文件选择器 -->
+  <div id="import-tray" class="modal" hidden>
+    <div class="modal-mask" id="tray-mask"></div>
+    <div class="modal-panel">
+      <div class="modal-head">
+        <span>待导入（已选 <b id="tray-count">0</b> 本）</span>
+        <button class="icon-btn" id="tray-close">×</button>
+      </div>
+      <div id="tray-list" class="tray-list"></div>
+      <div class="tray-actions">
+        <button class="wide-btn ghost" id="tray-selall">全选</button>
+        <button class="wide-btn ghost" id="tray-selnone">全不选</button>
+        <button class="wide-btn ghost" id="tray-addmore">＋ 继续添加</button>
+      </div>
+      <div class="modal-actions">
+        <button class="wide-btn ghost" id="tray-cancel">取消</button>
+        <button class="wide-btn primary" id="tray-import">导入所选（<span id="tray-selcount">0</span>）</button>
+      </div>
+    </div>
+  </div>
+
   <div id="toast" class="toast" hidden></div>
 
   <script src="vendor/tcb.js"></script>
-  <script src="app.js?v=20260824j"></script>
-  <script src="reader.js?v=20260824j"></script>
+  <script src="app.js?v=20260824k"></script>
+  <script src="reader.js?v=20260824k"></script>
 </body>
 </html>
