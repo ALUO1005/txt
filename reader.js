@@ -535,6 +535,10 @@ const Reader = (function () {
     if (animating || !book) return;
     const target = clamp(index + delta);
     if (target === index) { showToast(delta > 0 ? '已经是最后一页' : '已经是第一页'); return; }
+    /* UC 旧内核对 Element.animate / 3D 渲染支持不全，翻页动画会崩或丢帧；
+       统一走 instant（无动画），保证能翻页且正文稳定可见。其余浏览器按设置走动画。 */
+    const isUC = /UCBrowser|UCWEB|UcWeb/i.test(navigator.userAgent);
+    if (isUC) { doInstant(target); return; }
     const mode = App.settings.turn || 'flip';
     if (mode === 'flip') doFlip(target, delta);
     else if (mode === 'slide') doSlide(target, delta);

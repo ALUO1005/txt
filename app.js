@@ -1,6 +1,35 @@
 /* ============================================================
    墨阅 · TXT 小说阅读器  —  主逻辑（存储 / 书架 / 导入 / 设置 / 账号）
    ============================================================ */
+/* 全局运行时错误捕获：UC 等老旧内核遇到不支持的 API 会静默崩，这里把错误直接显示到屏幕，
+   便于用户截图精确反馈根因，避免反复盲改。浮层定位用 left/right/bottom 长手（绝不用 inset，UC 不识别）。 */
+window.addEventListener('error', function (e) {
+  try {
+    var d = document.getElementById('err-overlay');
+    if (!d) {
+      d = document.createElement('pre');
+      d.id = 'err-overlay';
+      d.style.cssText = 'position:fixed;left:0;right:0;bottom:0;z-index:99999;background:rgba(150,0,0,.92);color:#fff;font:11px/1.4 monospace;padding:8px 10px;white-space:pre-wrap;max-height:42vh;overflow:auto';
+      (document.body || document.documentElement).appendChild(d);
+    }
+    var msg = (e && e.message) ? e.message : String(e);
+    if (e && e.filename) msg += '\n@' + e.filename + ':' + (e.lineno || '?');
+    d.textContent = (d.textContent ? d.textContent + '\n' : '') + 'ERR: ' + msg;
+  } catch (_) {}
+});
+window.addEventListener('unhandledrejection', function (e) {
+  try {
+    var d = document.getElementById('err-overlay');
+    if (!d) {
+      d = document.createElement('pre');
+      d.id = 'err-overlay';
+      d.style.cssText = 'position:fixed;left:0;right:0;bottom:0;z-index:99999;background:rgba(150,0,0,.92);color:#fff;font:11px/1.4 monospace;padding:8px 10px;white-space:pre-wrap;max-height:42vh;overflow:auto';
+      (document.body || document.documentElement).appendChild(d);
+    }
+    var reason = (e && e.reason) ? (e.reason.message || e.reason) : e;
+    d.textContent = (d.textContent ? d.textContent + '\n' : '') + 'PROMISE ERR: ' + reason;
+  } catch (_) {}
+});
 const App = {
   db: null,
   settings: null,

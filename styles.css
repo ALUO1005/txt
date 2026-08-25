@@ -41,7 +41,7 @@ html, body {
   background: var(--bg); color: var(--text);
   overscroll-behavior: none;
 }
-body { position: fixed; inset: 0; overflow: hidden; }
+body { position: fixed; top: 0; right: 0; bottom: 0; left: 0; overflow: hidden; }
 
 html, body { height: 100%; }
 .view { display: none; position: absolute; top: 0; left: 0; right: 0; bottom: 0;
@@ -164,8 +164,8 @@ html.uc .view { height: 100%; }
    关键点：绝对定位元素若同时写 top:0;bottom:0 与 height:0，height:0 会胜出把视区塌成 0 高，
    内部 .reader-stage / .fp-content 全被 overflow:hidden 裁成空白 → 表现成「文档打不开」。
    因此这里只用 inset:0 拉伸，绝不写 height:0。 */
-.reader-viewport { position: absolute; inset: 0; overflow: hidden; touch-action: none; -ms-touch-action: none; }
-.reader-stage { position: absolute; inset: 0; perspective: 1800px; perspective-origin: 0% 50%; }
+.reader-viewport { position: absolute; top: 0; right: 0; bottom: 0; left: 0; overflow: hidden; touch-action: none; -ms-touch-action: none; }
+.reader-stage { position: absolute; top: 0; right: 0; bottom: 0; left: 0; perspective: 1800px; perspective-origin: 0% 50%; }
 /* 翻页层：父 .reader-stage 提供 perspective，子 rotateY 即可呈现 3D 翻页效果。
    **不要**给 .flip-page 加 transform-style: preserve-3d —— 嵌套 3D 上下文会让
    .fp-content 文本进入 GPU 3D 合成层，UC/部分 Android 旧 WebView 对此渲染支持
@@ -173,7 +173,7 @@ html.uc .view { height: 100%; }
    标准 3D 翻页做法：父 perspective + 子 rotateY，子保持 2D 平面渲染。
    backface-visibility: hidden 保留 → 翻转到背面时该页不显示。 */
 .flip-page {
-  position: absolute; inset: 0; background: var(--bg); z-index: 1;
+  position: absolute; top: 0; right: 0; bottom: 0; left: 0; background: var(--bg); z-index: 1;
   backface-visibility: hidden; -webkit-backface-visibility: hidden;
 }
 /* fp-content 可视渲染区：inset:0 满屏铺字（跨浏览器最稳）。
@@ -190,7 +190,7 @@ html.uc .view { height: 100%; }
 .fp-content {
   display: block;
   position: absolute;
-  inset: 0;
+  top: 0; right: 0; bottom: 0; left: 0;
   width: 100%;
   max-width: 100%;
   padding: 8px 14px;
@@ -229,7 +229,7 @@ html.uc .fp-content { padding: 8px 14px 100px; }
 .reader-stage    { width: 100%; max-width: 100%; }
 .flip-page       { width: 100%; max-width: 100%; }
 .fp-shade {
-  position: absolute; inset: 0; pointer-events: none; opacity: 0;
+  position: absolute; top: 0; right: 0; bottom: 0; left: 0; pointer-events: none; opacity: 0;
   background: linear-gradient(90deg, rgba(0,0,0,0) 55%, rgba(0,0,0,0.30) 100%);
 }
 
@@ -260,7 +260,7 @@ html.uc .fp-content { padding: 8px 14px 100px; }
   flex: 1 1 0; min-width: 0; white-space: nowrap; }
 .bbtn.active { color: var(--accent); }
 
-.reader-loading { position: absolute; inset: 0; display: flex; align-items: center;
+.reader-loading { position: absolute; top: 0; right: 0; bottom: 0; left: 0; display: flex; align-items: center;
   justify-content: center; font-size: 14px; color: var(--sub); background: var(--bg); }
 
 /* 设置 */
