@@ -24,11 +24,14 @@ const Reader = (function () {
   /* ---------- 视口尺寸 ----------
      计算"可视区高度"为分页服务，必须扣除浏览器自身的 chrome：
      - 标准浏览器/微信：visualViewport.height 通常等于 innerHeight（地址栏已隐藏）
-     - UC 浏览器：底部 navbar (~52px) 是浏览器 UI、不是我们的视图，必须从 vpH 扣掉
-       否则文字会一直画到 navbar 之下被遮挡。直接 vpH -= 52（不再走 bottom:var(--xxx) CSS 变量方案：
-       UC 旧内核对 var() 解析失真、整条规则失效、fp-content 高度塌成 0、文字完全不显示——
-       这是 round3 时的根因。CSS 让位改由 padding-bottom 同步加大 60px 完成，JS 这边 vpH-52
-       与 CSS 让位 60 完全 1:1 对应（CSS 多 8px 给底部 padding 兜底），无双扣）。
+     - UC 浏览器：底部 navbar（图标5+padding+手势条，实测 **150-180px**）是浏览器 UI、
+       不是我们的视图，必须从 vpH 扣掉否则文字会一直画到 navbar 之下被遮挡。
+       chrome5 关键修复：让位从 52 改 200——用户多次反馈 52 不够、180 也不够（安全余量不足），
+       直接用 200 覆盖到所有已知 UC 设备 navbar 高度。
+       不再走 bottom:var(--xxx) CSS 变量方案（UC 旧内核解析失真 → fp-content 塌成 0 高 →
+       文字完全不显示，这是 round3 时的根因）。CSS 一行不动，只改 JS 让位数字。
+       CSS padding-bottom 60px / JS PAD_BOT=60 是 fp-content 自己的 padding，
+       与 vpH 让位是两个独立维度、不会双扣：vh = vpH - 8 - 60 = fp-content 真实 content area 高。
      - 任何 < 100px 或 ≥ 5000px 的值都视为失真，跳过该级 fallback
      宽度同理：多级 fallback，避免 UC 旧内核 clientWidth 返回 0/< 50 */
   function getStageInnerSize() {
@@ -49,9 +52,11 @@ const Reader = (function () {
     }
     if (vpH < 200) vpH = 640;
 
-    /* UC 直接 vpH -52：fp-content 让位与分页用同一数字，单点管控。CSS 同步给 fp-content
-       padding-bottom 加 60px（多 8px 为底部安全区兜底），与此处 -52 数字 1:1。 */
-    if (isUC) vpH = Math.max(200, vpH - 52);
+    /* chrome5: UC 让位 52 → 200。fp-content 真实高 = vpH（被 applyUCLayout 写到 vp.style.height
+       强制收缩），content area = vpH - 8 - 60 = vpH - 68，文字严格画在 content area 内，
+       末行底部 y ≈ vpH - 60，UC navbar 顶部 y ≈ innerH - 180，末行距 navbar 顶部 80px 安全距离。
+       PAD_BOT=60 / CSS padding-bottom 60px 不动（与 vpH 让位独立、不双扣）。 */
+    if (isUC) vpH = Math.max(200, vpH - 200);
 
     /* 宽度多级 fallback（uc 旧内核 clientWidth 失真） */
     let winW = 0;
