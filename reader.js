@@ -21,100 +21,59 @@ const Reader = (function () {
   const wait = ms => new Promise(r => setTimeout(r, ms));
   const clamp = p => Math.max(0, Math.min(pages.length - 1, p));
 
-  /* ---------- 视口尺寸（chrome6：fcH 由 fc.style.height 真实驱动，paginate 与 fp-content 同步） ----------
-     核心：fp-content 真实高度 = fc.style.height（UC 上被 applyUCLayout 设为 innerH - navbarReserve，
-     chrome/微信上为空字符串则按 innerH 满屏铺字）。这是物理让位的「唯一真相来源」。
-     paginate 用 fcH - PAD_TOP - PAD_BOT 作为 availH，保证分页预估 ≤ fp-content 真实可绘区 —— 从原理上
-     杜绝「末行被 overflow:hidden 切」。 */
+  /* ---------- 视口尺寸（chrome7：纯 CSS 像素让位，UC 100% 识别） ----------
+     让位改用最简单的 px 数值：UC 上 html.uc .fp-content { padding-bottom: 100px }（直接像素，
+     不含 var/calc/env——这些 CSS 特性在 UC 旧内核上解析不稳定，已被验证失败多次）。
+     JS 侧的 PAD_BOT 与 CSS 的 padding-bottom 数字严格 1:1（chrome7 起 UC=100，其他=8），
+     不读 DOM、不写内联 height，全靠 window.innerHeight + 简单算术，跨浏览器一致。
+     fp-content 不设 height，靠 CSS inset:0 自然撑满 innerH（不再有任何"高度同步"机制）。 */
   function getStageInnerSize() {
     let vvH = window.visualViewport ? window.visualViewport.height : 0;
     let innerH = window.innerHeight || 0;
     const isUC = /UCBrowser|UCWEB|UcWeb/i.test(navigator.userAgent);
     const isWX = /MicroMessenger/i.test(navigator.userAgent);
 
-    if (vvH >= 100 && vvH < 5000) { /* 标准优先 vvH */ }
-    if (innerH < 100 || innerH >= 5000) {
-      if (document.documentElement && document.documentElement.clientHeight >= 100) innerH = document.documentElement.clientHeight;
-      else if (vvH >= 100) innerH = vvH;
-      else innerH = 640;
-    }
-    if (vvH < 100 || vvH >= 5000) vvH = innerH;
+    /* 标准浏览器优先 vvH；UC 上视觉视口常失真（visualViewport 等于 innerHeight 含 navbar），
+       直接用 innerHeight */
+    let vpH = 0;
+    if (!isUC && vvH >= 100 && vvH < 5000) vpH = vvH;
+    else if (innerH >= 100 && innerH < 5000) vpH = innerH;
+    else if (document.documentElement && document.documentElement.clientHeight >= 100) vpH = document.documentElement.clientHeight;
+    else vpH = 640;
+    if (vpH < 200) vpH = 640;
 
-    /* fcH 从 DOM 真实读取（chrome6 唯一真相来源） */
-    let fcH = innerH;
-    const fc = document.querySelector('.fp-content');
-    if (fc && fc.style.height && /^\d+(\.\d+)?px$/.test(fc.style.height)) {
-      const h = parseFloat(fc.style.height);
-      if (h >= 200 && h < innerH + 100) fcH = h;
-    }
-
-    /* 宽度多级 fallback */
+    /* 宽度多级 fallback（uc 旧内核 clientWidth 可能返回失真值） */
     let winW = 0;
     const vp = viewport();
     if (vp && vp.clientWidth && vp.clientWidth >= 50) winW = vp.clientWidth;
     if ((!winW || winW < 50) && window.innerWidth && window.innerWidth >= 50) winW = window.innerWidth;
-    if ((!winW || winW < 50) && window.visualViewport && window.visualViewport.width >= 50) winW = window.visualViewport.width;
     if ((!winW || winW < 50) && document.documentElement && document.documentElement.clientWidth && document.documentElement.clientWidth >= 50)
       winW = document.documentElement.clientWidth;
     if (!winW || winW < 50) winW = 360;
 
-    /* fc-content padding 8/14/8（chrome6 起 UC 不再叠加 padding 让位，避免双扣） */
-    const PAD_TOP = 8, PAD_BOT = 8, PAD_X = 28;
+    /* fp-content padding 顶底 chrome7：UC=100, 其他=8 —— 与 CSS .fp-content 的 padding-bottom
+       严格 1:1（chrome7 起所有 UC 让位都用纯 px，不用任何 var/calc/env） */
+    const PAD_TOP = 8, PAD_BOT = isUC ? 100 : 8, PAD_X = 28;
     return {
       vw: Math.max(160, winW - PAD_X),
-      vh: Math.max(120, fcH - PAD_TOP - PAD_BOT),
-      fcH,                                      /* fp-content 真实高度（UC = innerH - navbarReserve, chrome = innerH） */
-      vpH: innerH,                              /* 物理窗口高（用于 debug 显示） */
-      innerH,
-      vvH,
+      vh: Math.max(120, vpH - PAD_TOP - PAD_BOT),
+      vpH,
       winW,
+      rawInnerH: innerH,
+      rawVvH: vvH,
       ua: isUC ? 'uc' : (isWX ? 'wx' : 'std')
     };
   }
 
-  /* 把让位应用到 DOM（不读 DOM、纯写 style）：
-     chrome6 起，UC 让位完全由 fc.style.height inline 接管，**不再写** vp.style.height
-     ——后者在 UC 旧内核被忽略（chrome3 时已验证 var() 失效、inline height 同样不可靠），
-     写上去会让人误以为让位生效，实际 fp-content 真实高度仍是 innerH。
-     fc.style.height 是 inline style，所有内核 100% 接管，UC 上 fp-content 真实高度 = 该值。 */
-  function getNavbarReserve() {
-    /* UC navbar 实际高度（含 5 图标 + padding + 底部手势条），实测 90-110px。
-       优先用 visualViewport.height - window.innerHeight 差值检测（UC13+ 标准 API）：
-       标准浏览器 visualViewport 等于 innerHeight - 地址栏高度，差值是地址栏；
-       UC visualViewport 与 innerHeight 接近时差值为 0 时仍走回退值（说明 navbar 也算 innerHeight 内）。
-       安全回退 130（含 20px buffer）。
-       注意：UC 旧内核 visualViewport 不一定能拿到，依然走 130 回退。 */
-    let reserve = 0;
-    const isUC = /UCBrowser|UCWEB|UcWeb/i.test(navigator.userAgent);
-    if (!isUC) return 0;
-    if (window.visualViewport && window.innerHeight) {
-      const vvH = window.visualViewport.height;
-      const diff = window.innerHeight - vvH;
-      /* diff ∈ [40, 200] 视为 navbar 真实高度（避免地址栏差值误判） */
-      if (diff >= 40 && diff <= 200) reserve = diff + 20; /* +20 buffer */
-    }
-    if (reserve < 100) reserve = 130; /* 兜底：实测最大值 110 + buffer 20 */
-    return reserve;
-  }
+  /* UC class 注入：让 CSS html.uc .fp-content { padding-bottom: 100px } 生效。
+     **不读 DOM、不写 inline height**：所有让位都交给纯 px CSS，
+     没有任何被验证失败的机制（chrome6 的 fc.style.height、chrome5 的 vp.style.height、
+     uc-navbar-v2 的 var() + bottom、round3 的 calc(env(...)+60px）统统绕开。 */
   function applyUCLayout() {
     const isUC = /UCBrowser|UCWEB|UcWeb/i.test(navigator.userAgent);
-    if (isUC) {
-      if (!document.documentElement.classList.contains('uc')) {
-        document.documentElement.classList.add('uc');
-      }
+    if (isUC && !document.documentElement.classList.contains('uc')) {
+      document.documentElement.classList.add('uc');
     }
-    const innerH = window.innerHeight || 640;
-    /* chrome/微信/Safari：fc.style.height = '' 让 CSS inset:0 自然铺满 = innerH（满屏铺字） */
-    const navbarReserve = isUC ? getNavbarReserve() : 0;
-    document.querySelectorAll('.fp-content').forEach(fc => {
-      if (isUC) {
-        /* UC：fc.style.height = innerH - navbarReserve，inline 100% 生效 */
-        fc.style.height = (innerH - navbarReserve) + 'px';
-      } else {
-        /* 非 UC：清空 inline 让 CSS inset:0 自然铺满 */
-        fc.style.height = '';
-      }
-    });
   }
 
   /* ---------- 纠错数据应用（仅用于保留已保存的纠错结果，无编辑 UI） ---------- */
@@ -299,24 +258,27 @@ const Reader = (function () {
       const last = ps.length ? ps[ps.length - 1].getBoundingClientRect() : null;
       const fcBottom = fcRect ? fcRect.bottom : 0;
       const lastBottom = last ? last.bottom : 0;
-      /* navbarReserve 从 fc.style.height 推断：innerH - fcH（chrome6 唯一真相来源） */
-      const fcStyleH = fc && fc.style.height ? parseFloat(fc.style.height) : 0;
-      const navbarReserveFromFc = fcStyleH ? Math.round(window.innerHeight - fcStyleH) : 0;
-      /* UC 类识别：从 html 是否带 .uc 类拿 navbarReserve（getNavbarReserve 输出） */
+      /* chrome7：UC 让位完全由 CSS html.uc .fp-content { padding-bottom: 100px } 实现，
+         不再有 fc.style.height 内联写入。debug 浮层字段相应简化。
+         期望行为：UC 上 fcH ≈ innerHeight（fp-content 真实高，inset:0 自然撑满），
+         navbarReserve=100（CSS padding-bottom 让位），fcBottom-innerH ≈ navbarReserve
+         （最后文字位置距底边 ≈ 100px = padding-bottom 区域）。 */
       const stage = getStageInnerSize();
+      const fcH = fcRect ? Math.round(fcRect.height) : 0;
+      const navbarReserve = fcH ? Math.round(window.innerHeight - fcH) : 0;
       const info = [
-        'vpH=' + Math.round(window.innerHeight) + ' (innerHeight)',
-        'fcH=' + Math.round(stage.fcH) + ' (fp-content.style.height 实测)',
+        'winH=' + Math.round(window.innerHeight) + ' (window.innerHeight)',
+        'vpH=' + Math.round(stage.vpH) + ' (getStageInnerSize)',
+        'vh(分页可用)=' + Math.round(stage.vh) + ' = vpH - 8 - PAD_BOT',
+        'PAD_BOT=' + (stage.ua === 'uc' ? 100 : 8) + ' (chrome7 CSS 纯 px 让位)',
+        'fcH=' + fcH + ' (fp-content 实测高, inset:0 自然撑满)',
         'fcTop=' + (fcRect ? Math.round(fcRect.top) : '?'),
         'fcBottom=' + (fcRect ? Math.round(fcRect.bottom) : '?'),
-        'vpTop=' + (vpRect ? Math.round(vpRect.top) : '?'),
-        'vpBottom=' + (vpRect ? Math.round(vpRect.bottom) : '?'),
-        'navbarReserve=' + navbarReserveFromFc + ' (innerH-fcH, 0=chrome)',
-        'fcPad: 8/14/8 (chrome6 全浏览器一致)',
+        'navbarReserve(估)=' + navbarReserve + ' ≈ UC 上 CSS padding 让位',
         'UA=' + (navigator.userAgent.match(/UCBrowser|UCWEB|MicroMessenger|iPhone|Android/i) || ['?'])[0],
         'lastLineBottom=' + (function () {
           if (!last) return '?';
-          return Math.round(fcBottom - lastBottom) + 'px (负=溢出被切)';
+          return Math.round(fcBottom - lastBottom) + 'px (正数=装得下, 负=溢出)';
         })(),
         'linesPerPage=' + (typeof pages !== 'undefined' && pages[idx] ? pages[idx].length : '?'),
         'idx=' + idx

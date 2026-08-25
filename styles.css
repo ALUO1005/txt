@@ -196,8 +196,11 @@ html.uc .view { height: 100%; }
   font-family: var(--font-family);
   color: var(--text);
 }
-/* chrome6 起：UC 让位不再由 padding 处理，html.uc .fp-content 的 padding-bottom 不再覆盖为 60px。
-   JS 写 fc.style.height 已经接管 UC 让位（inline style 必生效、UC 旧内核也兼容）。 */
+/* chrome7：UC 让位改用**纯 px padding-bottom: 100px**——不含 var/calc/env/inset 等任何
+   已被验证失败的 CSS 特性，UC 100% 识别。JS 同步 PAD_BOT=100（与 CSS 数字 1:1），
+   分页可用高与 fp-content 文字真实可绘区严格一致，从原理上保证末行不被 overflow:hidden 切。
+   100px 覆盖 UC navbar 实测 90-110 + buffer，让位够、不被 UC 旧内核任意一种特性破坏。 */
+html.uc .fp-content { padding-bottom: 100px; }
 /* UC 旧 WebView 把 .fp-content p 的 shrink-to-fit 算成 max-content（只装 1 字就换行），
    表现为"每行只显示 1 个汉字"。强制 width:100% 让 <p> 占满父容器宽度，
    浏览器在固定宽度容器内用 word-break 正常折行。 */
