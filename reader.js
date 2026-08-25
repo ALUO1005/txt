@@ -21,26 +21,33 @@ const Reader = (function () {
   const wait = ms => new Promise(r => setTimeout(r, ms));
   const clamp = p => Math.max(0, Math.min(pages.length - 1, p));
 
-  /* ---------- 视口尺寸（chrome7：纯 CSS 像素让位，UC 100% 识别） ----------
-     让位改用最简单的 px 数值：UC 上 html.uc .fp-content { padding-bottom: 100px }（直接像素，
-     不含 var/calc/env——这些 CSS 特性在 UC 旧内核上解析不稳定，已被验证失败多次）。
-     JS 侧的 PAD_BOT 与 CSS 的 padding-bottom 数字严格 1:1（chrome7 起 UC=100，其他=8），
-     不读 DOM、不写内联 height，全靠 window.innerHeight + 简单算术，跨浏览器一致。
-     fp-content 不设 height，靠 CSS inset:0 自然撑满 innerH（不再有任何"高度同步"机制）。 */
+  /* ---------- 视口尺寸（chrome10：缩 body 物理让位 + JS vpH 同步减） ----------
+     chrome9 的 padding-bottom:100px 让位法实测不够：lineHeight 会把最后一行的字底顶到
+     vpH-100+lineH ≈ vpH-72，已经在 UC 底部工具栏（≈80px）里——文字被切。
+     chrome10 正解：CSS 直接缩 body（html.uc body { bottom: 110px }）把阅读区物理上抬到 navbar 之上，
+     JS 侧 vpH 也减同样 110px，与 CSS 严格 1:1（任何调整都同时改两边，否则又会出现"CSS/JS 高度不一致"
+     的 chrome5/6 老问题）。
+     重要：110 这个数字必须与 styles.css 中 html.uc body { bottom: 110px } 严格相等。
+     fp-content padding 回到对称 8/14/8，仅做视觉留白，不再当让位用。
+     不读 DOM、不写内联 height，全靠 window.innerHeight + 简单算术，跨浏览器一致。 */
   function getStageInnerSize() {
     let vvH = window.visualViewport ? window.visualViewport.height : 0;
     let innerH = window.innerHeight || 0;
     const isUC = /UCBrowser|UCWEB|UcWeb/i.test(navigator.userAgent);
     const isWX = /MicroMessenger/i.test(navigator.userAgent);
 
+    /* UC 让位常量（必须与 styles.css 中 html.uc body { bottom: 110px } 严格 1:1） */
+    const UC_BODY_RESERVE = 110;
+
     /* 标准浏览器优先 vvH；UC 上视觉视口常失真（visualViewport 等于 innerHeight 含 navbar），
-       直接用 innerHeight */
+       直接用 innerHeight 后再减去 UC_BODY_RESERVE（对应 CSS 缩 body） */
     let vpH = 0;
     if (!isUC && vvH >= 100 && vvH < 5000) vpH = vvH;
     else if (innerH >= 100 && innerH < 5000) vpH = innerH;
     else if (document.documentElement && document.documentElement.clientHeight >= 100) vpH = document.documentElement.clientHeight;
     else vpH = 640;
     if (vpH < 200) vpH = 640;
+    if (isUC) vpH = Math.max(200, vpH - UC_BODY_RESERVE);
 
     /* 宽度多级 fallback（uc 旧内核 clientWidth 可能返回失真值） */
     let winW = 0;
@@ -51,9 +58,8 @@ const Reader = (function () {
       winW = document.documentElement.clientWidth;
     if (!winW || winW < 50) winW = 360;
 
-    /* fp-content padding 顶底 chrome7：UC=100, 其他=8 —— 与 CSS .fp-content 的 padding-bottom
-       严格 1:1（chrome7 起所有 UC 让位都用纯 px，不用任何 var/calc/env） */
-    const PAD_TOP = 8, PAD_BOT = isUC ? 100 : 8, PAD_X = 28;
+    /* fp-content padding 顶/底各 8（chrome10：UC 让位改靠缩 body，padding 不再当让位） */
+    const PAD_TOP = 8, PAD_BOT = 8, PAD_X = 28;
     return {
       vw: Math.max(160, winW - PAD_X),
       vh: Math.max(120, vpH - PAD_TOP - PAD_BOT),
@@ -258,27 +264,27 @@ const Reader = (function () {
       const last = ps.length ? ps[ps.length - 1].getBoundingClientRect() : null;
       const fcBottom = fcRect ? fcRect.bottom : 0;
       const lastBottom = last ? last.bottom : 0;
-      /* chrome7：UC 让位完全由 CSS html.uc .fp-content { padding-bottom: 100px } 实现，
-         不再有 fc.style.height 内联写入。debug 浮层字段相应简化。
-         期望行为：UC 上 fcH ≈ innerHeight（fp-content 真实高，inset:0 自然撑满），
-         navbarReserve=100（CSS padding-bottom 让位），fcBottom-innerH ≈ navbarReserve
-         （最后文字位置距底边 ≈ 100px = padding-bottom 区域）。 */
+      /* chrome10：UC 让位改靠 CSS html.uc body { bottom: 110px } 直接缩 body（不再用 fp-content padding 让位，
+         那条路 chrome9 验证 100px 不够——lineHeight 把字底顶进 navbar）。
+         期望行为：UC 上 fcH ≈ innerHeight - 110（body 被缩了 110px，fp-content 继承），
+         navbarReserve = innerHeight - fcH ≈ 110，lastLineBottom 应为正数（文字底部距 fp-content 底还有空隙）。
+         vpH 同步减 110 = JS 算出的分页可用高度，CSS/JS 严格 1:1。 */
       const stage = getStageInnerSize();
       const fcH = fcRect ? Math.round(fcRect.height) : 0;
       const navbarReserve = fcH ? Math.round(window.innerHeight - fcH) : 0;
       const info = [
-        'winH=' + Math.round(window.innerHeight) + ' (window.innerHeight)',
-        'vpH=' + Math.round(stage.vpH) + ' (getStageInnerSize)',
-        'vh(分页可用)=' + Math.round(stage.vh) + ' = vpH - 8 - PAD_BOT',
-        'PAD_BOT=' + (stage.ua === 'uc' ? 100 : 8) + ' (chrome7 CSS 纯 px 让位)',
-        'fcH=' + fcH + ' (fp-content 实测高, inset:0 自然撑满)',
+        'winH=' + Math.round(window.innerHeight) + ' (window.innerHeight, 含 UC navbar)',
+        'vpH=' + Math.round(stage.vpH) + ' (getStageInnerSize, UC 减 110 与 CSS 同步)',
+        'vh(分页可用)=' + Math.round(stage.vh) + ' = vpH - 8 - 8',
+        'PAD_BOT=8 (chrome10: 让位靠缩 body, padding 仅做视觉留白)',
+        'fcH=' + fcH + ' (fp-content 实测高, 继承 body 高, UC=innerH-110)',
         'fcTop=' + (fcRect ? Math.round(fcRect.top) : '?'),
         'fcBottom=' + (fcRect ? Math.round(fcRect.bottom) : '?'),
-        'navbarReserve(估)=' + navbarReserve + ' ≈ UC 上 CSS padding 让位',
+        'navbarReserve(估)=' + navbarReserve + ' ≈ UC 上 CSS body 缩量(应≈110)',
         'UA=' + (navigator.userAgent.match(/UCBrowser|UCWEB|MicroMessenger|iPhone|Android/i) || ['?'])[0],
         'lastLineBottom=' + (function () {
           if (!last) return '?';
-          return Math.round(fcBottom - lastBottom) + 'px (正数=装得下, 负=溢出)';
+          return Math.round(fcBottom - lastBottom) + 'px (正数=文字底部在 fp-content 底之上, 负=溢出)';
         })(),
         'linesPerPage=' + (typeof pages !== 'undefined' && pages[idx] ? pages[idx].length : '?'),
         'idx=' + idx

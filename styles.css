@@ -42,6 +42,13 @@ html, body {
   overscroll-behavior: none;
 }
 body { position: fixed; top: 0; right: 0; bottom: 0; left: 0; overflow: hidden; }
+/* chrome10：UC 自带底部工具栏（≈80px）实测能盖住 fp-content padding-bottom 让位的最后一整行
+   （chrome9 100px 让位仍被切——padding 是"软让位"，只能缩盒子内的可用高度，不能让盒子本身缩；
+   即使 padding 起效，lineHeight 把字底顶到 vpH-100+lineH = vpH-72，已经在 navbar 里）。
+   正解：直接把 body 缩 110px（=navbar 80 + 顶/底 padding 8+8 + 14 余量），让阅读区物理上在 navbar 之上。
+   所有 .view/.reader-viewport/.reader-stage/.flip-page/.fp-content 靠 position:absolute 撑满，自然继承新高度；
+   topbar/bottombar 靠 top:0/bottom:0 也自动落到新位置（在 navbar 之上）。 */
+html.uc body { bottom: 110px; }
 
 html, body { height: 100%; }
 .view { display: none; position: absolute; top: 0; left: 0; right: 0; bottom: 0;
@@ -203,9 +210,12 @@ html.uc .view { height: 100%; }
   font-family: var(--font-family);
   color: var(--text);
 }
-/* chrome8：UC 让位改用 padding 简写整条覆盖（不与上方 .fp-content 简写合并，
-   避免 UC 旧内核对 padding 简写合并的解析不确定性）——纯 px 100/14/8，UC 100% 识别。 */
-html.uc .fp-content { padding: 8px 14px 100px; }
+/* chrome10：UC 让位不再靠 padding（chrome9 验证 100px padding 不够，lineHeight 会把字底顶进 navbar），
+   改靠 html.uc body { bottom: 110px } 直接缩 body（物理上把阅读区抬到 navbar 之上）。
+   fp-content 的 padding 改回对称 8px 14px 8px（仅做视觉留白，不再当让位用）。 */
+html.uc .fp-content { padding: 8px 14px 8px; }
+/* chrome10：错误浮层在 UC 上也得抬到 navbar 之上（否则报错红条会被 UC 工具栏盖住看不到） */
+html.uc #err-overlay { bottom: 110px; }
 /* UC 旧 WebView 把 .fp-content p 的 shrink-to-fit 算成 max-content（只装 1 字就换行），
    表现为"每行只显示 1 个汉字"。强制 width:100% 让 <p> 占满父容器宽度，
    浏览器在固定宽度容器内用 word-break 正常折行。 */
