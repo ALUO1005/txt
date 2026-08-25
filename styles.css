@@ -48,7 +48,18 @@ body { position: fixed; top: 0; right: 0; bottom: 0; left: 0; overflow: hidden; 
    正解：直接把 body 缩 110px（=navbar 80 + 顶/底 padding 8+8 + 14 余量），让阅读区物理上在 navbar 之上。
    所有 .view/.reader-viewport/.reader-stage/.flip-page/.fp-content 靠 position:absolute 撑满，自然继承新高度；
    topbar/bottombar 靠 top:0/bottom:0 也自动落到新位置（在 navbar 之上）。 */
-html.uc body { bottom: 110px; }
+/* chrome11 关键诊断：chrome10 的 `html.uc body { bottom: 110px }` 后代选择器在 UC 上未被识别
+     （用户截图证实——chrome10 底部仍被 navbar 遮挡，说明 110px 让位规则没生效）。
+     UC 对 `html.x body` 这种"html 加 class 的后代选择器" + position 简写的组合解析有坑——
+     不能再依赖这条路径。chrome11 改为：
+     1) 类名加在 body 本身（`body.uc`），不用 html.uc——选择器更短、更可能被 UC 识别；
+     2) !important 防止任何其他规则覆盖；
+     3) JS 侧同时用内联 `body.style.bottom = 'Xpx'` + setProperty('important')，这是
+        最高优先级，UC 想忽略也忽略不掉。
+     值从 110 升到 150——UC navbar 实测 100-130px（含安全区可到 140），110 仍会被吃。 */
+body.uc { bottom: 150px !important; }
+/* 错误浮层也要同步抬到 navbar 之上 */
+body.uc #err-overlay { bottom: 150px !important; }
 
 html, body { height: 100%; }
 .view { display: none; position: absolute; top: 0; left: 0; right: 0; bottom: 0;
@@ -214,8 +225,7 @@ html.uc .view { height: 100%; }
    改靠 html.uc body { bottom: 110px } 直接缩 body（物理上把阅读区抬到 navbar 之上）。
    fp-content 的 padding 改回对称 8px 14px 8px（仅做视觉留白，不再当让位用）。 */
 html.uc .fp-content { padding: 8px 14px 8px; }
-/* chrome10：错误浮层在 UC 上也得抬到 navbar 之上（否则报错红条会被 UC 工具栏盖住看不到） */
-html.uc #err-overlay { bottom: 110px; }
+/* chrome11：错误浮层类选择器也改为 body.uc（与上面 body.uc 同根因修复），值升到 150 */
 /* UC 旧 WebView 把 .fp-content p 的 shrink-to-fit 算成 max-content（只装 1 字就换行），
    表现为"每行只显示 1 个汉字"。强制 width:100% 让 <p> 占满父容器宽度，
    浏览器在固定宽度容器内用 word-break 正常折行。 */

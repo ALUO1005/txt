@@ -21,33 +21,50 @@ const Reader = (function () {
   const wait = ms => new Promise(r => setTimeout(r, ms));
   const clamp = p => Math.max(0, Math.min(pages.length - 1, p));
 
-  /* ---------- 视口尺寸（chrome10：缩 body 物理让位 + JS vpH 同步减） ----------
+  /* ---------- 视口尺寸（chrome11：缩 body 物理让位 + JS vpH 同步减） ----------
      chrome9 的 padding-bottom:100px 让位法实测不够：lineHeight 会把最后一行的字底顶到
      vpH-100+lineH ≈ vpH-72，已经在 UC 底部工具栏（≈80px）里——文字被切。
-     chrome10 正解：CSS 直接缩 body（html.uc body { bottom: 110px }）把阅读区物理上抬到 navbar 之上，
-     JS 侧 vpH 也减同样 110px，与 CSS 严格 1:1（任何调整都同时改两边，否则又会出现"CSS/JS 高度不一致"
-     的 chrome5/6 老问题）。
-     重要：110 这个数字必须与 styles.css 中 html.uc body { bottom: 110px } 严格相等。
-     fp-content padding 回到对称 8/14/8，仅做视觉留白，不再当让位用。
-     不读 DOM、不写内联 height，全靠 window.innerHeight + 简单算术，跨浏览器一致。 */
+     chrome10 试 `html.uc body { bottom: 110px }` 后代选择器——UA 截图证实 UC 没识别（文字仍被切）。
+     chrome11 多重保险让位：
+     1) CSS：`body.uc { bottom: 150px !important }`（类名加在 body 本身，不用 html.uc，更稳）；
+     2) JS：applyUCLayout 直接 `document.body.style.setProperty('bottom', '150px', 'important')`，
+            内联 !important 优先级最高，UC 想忽略也忽略不掉；
+     3) 动态检测：优先用 window.visualViewport.height 减 innerHeight 算真实 navbar 高度，
+        如果 visualViewport 在 UC 上不灵（返回等于 innerHeight），自动用 150 兜底；
+     4) UC_BODY_RESERVE 与 CSS 严格 1:1，paginate 时 vpH 也减同样值，杜绝"CSS/JS 高度不一致"
+        复发的 chrome5/6 老问题。 */
+  let UC_BODY_RESERVE = 150;  /* chrome11: 从 110 升到 150 兜底（UC navbar 实测 100-130px） */
+  function getUCReserveHeight() {
+    /* 优先用 visualViewport 算真实 navbar 高度（更精准）。
+       如果 visualViewport 在 UC 上失灵（返回 ≈ innerHeight），就用兜底值 150。 */
+    if (window.visualViewport && window.visualViewport.height > 0) {
+      const vvH = window.visualViewport.height;
+      const winH = window.innerHeight || vvH;
+      if (vvH < winH - 20 && vvH > 100) {
+        return Math.round(winH - vvH);  /* visualViewport 真的小于 innerHeight 时，差额 ≈ navbar */
+      }
+    }
+    return UC_BODY_RESERVE;  /* visualViewport 失灵时用兜底 */
+  }
   function getStageInnerSize() {
     let vvH = window.visualViewport ? window.visualViewport.height : 0;
     let innerH = window.innerHeight || 0;
     const isUC = /UCBrowser|UCWEB|UcWeb/i.test(navigator.userAgent);
     const isWX = /MicroMessenger/i.test(navigator.userAgent);
 
-    /* UC 让位常量（必须与 styles.css 中 html.uc body { bottom: 110px } 严格 1:1） */
-    const UC_BODY_RESERVE = 110;
+    /* UC 让位常量——chrome11: 使用全局 UC_BODY_RESERVE（applyUCLayout 已根据 visualViewport 动态更新），
+       兜底 150（已被 css body.uc { bottom: 150px !important } 同步）。 */
+    const UC_RESERVE = isUC ? UC_BODY_RESERVE : 0;
 
     /* 标准浏览器优先 vvH；UC 上视觉视口常失真（visualViewport 等于 innerHeight 含 navbar），
-       直接用 innerHeight 后再减去 UC_BODY_RESERVE（对应 CSS 缩 body） */
+       直接用 innerHeight 后再减去 UC_RESERVE（与 CSS body.uc bottom 严格 1:1） */
     let vpH = 0;
     if (!isUC && vvH >= 100 && vvH < 5000) vpH = vvH;
     else if (innerH >= 100 && innerH < 5000) vpH = innerH;
     else if (document.documentElement && document.documentElement.clientHeight >= 100) vpH = document.documentElement.clientHeight;
     else vpH = 640;
     if (vpH < 200) vpH = 640;
-    if (isUC) vpH = Math.max(200, vpH - UC_BODY_RESERVE);
+    if (isUC) vpH = Math.max(200, vpH - UC_RESERVE);
 
     /* 宽度多级 fallback（uc 旧内核 clientWidth 可能返回失真值） */
     let winW = 0;
@@ -71,15 +88,32 @@ const Reader = (function () {
     };
   }
 
-  /* UC class 注入：让 CSS html.uc .fp-content { padding-bottom: 100px } 生效。
-     **不读 DOM、不写 inline height**：所有让位都交给纯 px CSS，
-     没有任何被验证失败的机制（chrome6 的 fc.style.height、chrome5 的 vp.style.height、
-     uc-navbar-v2 的 var() + bottom、round3 的 calc(env(...)+60px）统统绕开。 */
+  /* UC class 注入 + 内联样式兜底（chrome11 三重保险）：
+     1) class 加在 body 本身（不用 documentElement）——避开 chrome10 失败的
+        `html.uc body` 后代选择器不被 UC 识别的坑；
+     2) 内联 `body.style.bottom = Xpx` + setProperty('important') —— 这是 DOM 上的
+        inline !important，优先级最高，CSS 选择器怎么失效都不会影响；
+     3) 用 visualViewport 动态算真实 navbar 高度（如果可用），否则用兜底值 150。
+     这是 chrome10 失败后的"最后一根稻草"——之前 CSS 路径全部失效，
+     JS 内联样式 + !important 是 UC 唯一不可能忽略的通道。 */
   function applyUCLayout() {
     const isUC = /UCBrowser|UCWEB|UcWeb/i.test(navigator.userAgent);
-    if (isUC && !document.documentElement.classList.contains('uc')) {
-      document.documentElement.classList.add('uc');
+    if (!isUC) return;
+    /* 1) 加 class 到 body（不是 documentElement）——选择器更短、更可能被 UC 解析 */
+    if (!document.body.classList.contains('uc')) {
+      document.body.classList.add('uc');
     }
+    /* 2) 同步更新全局 reserve（让 paginate 用同一数字） */
+    const reserve = getUCReserveHeight();
+    UC_BODY_RESERVE = reserve;
+    /* 3) 内联样式 + !important（最后兜底，前面 CSS 选择器都失败也能生效） */
+    try {
+      const bs = document.body.style;
+      bs.setProperty('top', '0', 'important');
+      bs.setProperty('right', '0', 'important');
+      bs.setProperty('bottom', reserve + 'px', 'important');
+      bs.setProperty('left', '0', 'important');
+    } catch (e) { /* setProperty 在 UC 上应该没问题，try/catch 防御性兜底 */ }
   }
 
   /* ---------- 纠错数据应用（仅用于保留已保存的纠错结果，无编辑 UI） ---------- */
@@ -264,23 +298,23 @@ const Reader = (function () {
       const last = ps.length ? ps[ps.length - 1].getBoundingClientRect() : null;
       const fcBottom = fcRect ? fcRect.bottom : 0;
       const lastBottom = last ? last.bottom : 0;
-      /* chrome10：UC 让位改靠 CSS html.uc body { bottom: 110px } 直接缩 body（不再用 fp-content padding 让位，
-         那条路 chrome9 验证 100px 不够——lineHeight 把字底顶进 navbar）。
-         期望行为：UC 上 fcH ≈ innerHeight - 110（body 被缩了 110px，fp-content 继承），
-         navbarReserve = innerHeight - fcH ≈ 110，lastLineBottom 应为正数（文字底部距 fp-content 底还有空隙）。
-         vpH 同步减 110 = JS 算出的分页可用高度，CSS/JS 严格 1:1。 */
+      /* chrome11：UC 让位改靠 CSS body.uc { bottom: 150px !important } + JS 内联样式兜底，
+         不再用 fp-content padding 让位（chrome9 验证 100px padding 不够，lineHeight 把字底顶进 navbar）。
+         期望行为：UC 上 fcH ≈ innerHeight - reserve（body 被缩了 reserve px，fp-content 继承），
+         navbarReserve = innerHeight - fcH ≈ reserve，lastLineBottom 应为正数（文字底部距 fp-content 底还有空隙）。
+         vpH 同步减 reserve = JS 算出的分页可用高度，CSS/JS 严格 1:1。 */
       const stage = getStageInnerSize();
       const fcH = fcRect ? Math.round(fcRect.height) : 0;
       const navbarReserve = fcH ? Math.round(window.innerHeight - fcH) : 0;
       const info = [
         'winH=' + Math.round(window.innerHeight) + ' (window.innerHeight, 含 UC navbar)',
-        'vpH=' + Math.round(stage.vpH) + ' (getStageInnerSize, UC 减 110 与 CSS 同步)',
+        'vpH=' + Math.round(stage.vpH) + ' (getStageInnerSize, UC 减 reserve=' + UC_BODY_RESERVE + ' 与 CSS body 严格 1:1)',
         'vh(分页可用)=' + Math.round(stage.vh) + ' = vpH - 8 - 8',
-        'PAD_BOT=8 (chrome10: 让位靠缩 body, padding 仅做视觉留白)',
-        'fcH=' + fcH + ' (fp-content 实测高, 继承 body 高, UC=innerH-110)',
+        'PAD_BOT=8 (chrome11: 让位靠缩 body+内联样式, padding 仅做视觉留白)',
+        'fcH=' + fcH + ' (fp-content 实测高, 继承 body 高, UC=innerH-reserve)',
         'fcTop=' + (fcRect ? Math.round(fcRect.top) : '?'),
         'fcBottom=' + (fcRect ? Math.round(fcRect.bottom) : '?'),
-        'navbarReserve(估)=' + navbarReserve + ' ≈ UC 上 CSS body 缩量(应≈110)',
+        'navbarReserve(估)=' + navbarReserve + ' ≈ UC 上 body 实际缩量(应≈' + UC_BODY_RESERVE + ')',
         'UA=' + (navigator.userAgent.match(/UCBrowser|UCWEB|MicroMessenger|iPhone|Android/i) || ['?'])[0],
         'lastLineBottom=' + (function () {
           if (!last) return '?';
