@@ -177,16 +177,23 @@ html.uc .view { height: 100%; }
   backface-visibility: hidden; -webkit-backface-visibility: hidden;
 }
 /* fp-content 可视渲染区：inset:0 满屏铺字（跨浏览器最稳）。
-   chrome6 起，UC 让位完全由 JS 写 fc.style.height 控制（inline 100% 生效，UC 旧内核也兼容）。
-   CSS padding 不再加让位（避免 CSS 让位 + JS 让位叠加成双重扣减，
-   也避免 UC 旧内核 CSS 变量 / calc 解析失真让 fp-content 塌成 0 高 = "打不开"）。 */
+   chrome8 关键修复：**纯 px padding 取代 calc(env(...))**——
+   上一版 chrome7 仍残留 calc(env(safe-area-inset-top) + 8px) 等语法，
+   UC 旧内核对 calc() 内嵌 env() 解析失败 → 整条 padding 规则作废 →
+   padding 退化为 0 → box-sizing + inset:0 计算异常 → fp-content 整片塌成不可见
+   （这正是你截图中"UC 米色一片空白"、微信却能正常打开的根因：
+   微信内核支持 env()、所以微信能算，UC 不支持所以算崩）。
+   chrome8 改用纯 px padding（CSS 1.0 就有、UC 100% 识别）：
+   - 顶/底各 8px 极小缓冲（顶/底栏浮层不占空间，文字可贴边）
+   - 左右 14px 留白
+   - UC 让位由下方 html.uc 简写 padding: 8px 14px 100px 整条覆盖 */
 .fp-content {
   display: block;
   position: absolute;
   inset: 0;
   width: 100%;
   max-width: 100%;
-  padding: calc(env(safe-area-inset-top) + 8px) 14px calc(env(safe-area-inset-bottom) + 8px);
+  padding: 8px 14px;
   box-sizing: border-box;
   overflow: hidden;
   word-break: break-word;
@@ -196,11 +203,9 @@ html.uc .view { height: 100%; }
   font-family: var(--font-family);
   color: var(--text);
 }
-/* chrome7：UC 让位改用**纯 px padding-bottom: 100px**——不含 var/calc/env/inset 等任何
-   已被验证失败的 CSS 特性，UC 100% 识别。JS 同步 PAD_BOT=100（与 CSS 数字 1:1），
-   分页可用高与 fp-content 文字真实可绘区严格一致，从原理上保证末行不被 overflow:hidden 切。
-   100px 覆盖 UC navbar 实测 90-110 + buffer，让位够、不被 UC 旧内核任意一种特性破坏。 */
-html.uc .fp-content { padding-bottom: 100px; }
+/* chrome8：UC 让位改用 padding 简写整条覆盖（不与上方 .fp-content 简写合并，
+   避免 UC 旧内核对 padding 简写合并的解析不确定性）——纯 px 100/14/8，UC 100% 识别。 */
+html.uc .fp-content { padding: 8px 14px 100px; }
 /* UC 旧 WebView 把 .fp-content p 的 shrink-to-fit 算成 max-content（只装 1 字就换行），
    表现为"每行只显示 1 个汉字"。强制 width:100% 让 <p> 占满父容器宽度，
    浏览器在固定宽度容器内用 word-break 正常折行。 */
