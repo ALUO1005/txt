@@ -176,17 +176,16 @@ html.uc .view { height: 100%; }
   position: absolute; inset: 0; background: var(--bg); z-index: 1;
   backface-visibility: hidden; -webkit-backface-visibility: hidden;
 }
-/* fp-content 可视渲染区：回退 inset:0 满屏铺字（跨浏览器最稳）。
-   UC 让位通过下方 html.uc .fp-content 加大 padding-bottom 实现（不写 bottom: var(--xxx) —
-   UC 旧内核解析 CSS 变量降级时会让整条规则失效，导致 fp-content 高度为 0、文字完全不可见）。 */
+/* fp-content 可视渲染区：inset:0 满屏铺字（跨浏览器最稳）。
+   chrome6 起，UC 让位完全由 JS 写 fc.style.height 控制（inline 100% 生效，UC 旧内核也兼容）。
+   CSS padding 不再加让位（避免 CSS 让位 + JS 让位叠加成双重扣减，
+   也避免 UC 旧内核 CSS 变量 / calc 解析失真让 fp-content 塌成 0 高 = "打不开"）。 */
 .fp-content {
   display: block;
   position: absolute;
   inset: 0;
   width: 100%;
   max-width: 100%;
-  /* 满屏铺字：顶/底栏均为 absolute 浮层，用户接受底栏显示时盖字、隐藏时文字布满全屏。
-     仅留安全区 + 8px 极小缓冲。 */
   padding: calc(env(safe-area-inset-top) + 8px) 14px calc(env(safe-area-inset-bottom) + 8px);
   box-sizing: border-box;
   overflow: hidden;
@@ -197,10 +196,8 @@ html.uc .view { height: 100%; }
   font-family: var(--font-family);
   color: var(--text);
 }
-/* UC 浏览器底部 navbar(~52px) 让位：fp-content 的底部 padding 加大，让最后一行文字
-   自然停在 navbar 之上。同步在 JS getStageInnerSize 中 vpH 减 52，让分页可用高
-   与此处 padding 严格 1:1 对齐——无双扣。CSS 单点管控、跨浏览器一致。 */
-html.uc .fp-content { padding-bottom: calc(env(safe-area-inset-bottom) + 60px); }
+/* chrome6 起：UC 让位不再由 padding 处理，html.uc .fp-content 的 padding-bottom 不再覆盖为 60px。
+   JS 写 fc.style.height 已经接管 UC 让位（inline style 必生效、UC 旧内核也兼容）。 */
 /* UC 旧 WebView 把 .fp-content p 的 shrink-to-fit 算成 max-content（只装 1 字就换行），
    表现为"每行只显示 1 个汉字"。强制 width:100% 让 <p> 占满父容器宽度，
    浏览器在固定宽度容器内用 word-break 正常折行。 */

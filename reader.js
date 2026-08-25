@@ -21,44 +21,34 @@ const Reader = (function () {
   const wait = ms => new Promise(r => setTimeout(r, ms));
   const clamp = p => Math.max(0, Math.min(pages.length - 1, p));
 
-  /* ---------- 视口尺寸 ----------
-     计算"可视区高度"为分页服务，必须扣除浏览器自身的 chrome：
-     - 标准浏览器/微信：visualViewport.height 通常等于 innerHeight（地址栏已隐藏）
-     - UC 浏览器：底部 navbar（图标5+padding+手势条，实测 **150-180px**）是浏览器 UI、
-       不是我们的视图，必须从 vpH 扣掉否则文字会一直画到 navbar 之下被遮挡。
-       chrome5 关键修复：让位从 52 改 200——用户多次反馈 52 不够、180 也不够（安全余量不足），
-       直接用 200 覆盖到所有已知 UC 设备 navbar 高度。
-       不再走 bottom:var(--xxx) CSS 变量方案（UC 旧内核解析失真 → fp-content 塌成 0 高 →
-       文字完全不显示，这是 round3 时的根因）。CSS 一行不动，只改 JS 让位数字。
-       CSS padding-bottom 60px / JS PAD_BOT=60 是 fp-content 自己的 padding，
-       与 vpH 让位是两个独立维度、不会双扣：vh = vpH - 8 - 60 = fp-content 真实 content area 高。
-     - 任何 < 100px 或 ≥ 5000px 的值都视为失真，跳过该级 fallback
-     宽度同理：多级 fallback，避免 UC 旧内核 clientWidth 返回 0/< 50 */
+  /* ---------- 视口尺寸（chrome6：fcH 由 fc.style.height 真实驱动，paginate 与 fp-content 同步） ----------
+     核心：fp-content 真实高度 = fc.style.height（UC 上被 applyUCLayout 设为 innerH - navbarReserve，
+     chrome/微信上为空字符串则按 innerH 满屏铺字）。这是物理让位的「唯一真相来源」。
+     paginate 用 fcH - PAD_TOP - PAD_BOT 作为 availH，保证分页预估 ≤ fp-content 真实可绘区 —— 从原理上
+     杜绝「末行被 overflow:hidden 切」。 */
   function getStageInnerSize() {
     let vvH = window.visualViewport ? window.visualViewport.height : 0;
     let innerH = window.innerHeight || 0;
-    let vpH = 0;
     const isUC = /UCBrowser|UCWEB|UcWeb/i.test(navigator.userAgent);
     const isWX = /MicroMessenger/i.test(navigator.userAgent);
 
-    if (vvH >= 100 && vvH < 5000) {
-      vpH = vvH;
-    } else if (innerH >= 100 && innerH < 5000) {
-      vpH = innerH;
-    } else if (document.documentElement && document.documentElement.clientHeight >= 100) {
-      vpH = document.documentElement.clientHeight;
-    } else {
-      vpH = 640;
+    if (vvH >= 100 && vvH < 5000) { /* 标准优先 vvH */ }
+    if (innerH < 100 || innerH >= 5000) {
+      if (document.documentElement && document.documentElement.clientHeight >= 100) innerH = document.documentElement.clientHeight;
+      else if (vvH >= 100) innerH = vvH;
+      else innerH = 640;
     }
-    if (vpH < 200) vpH = 640;
+    if (vvH < 100 || vvH >= 5000) vvH = innerH;
 
-    /* chrome5: UC 让位 52 → 200。fp-content 真实高 = vpH（被 applyUCLayout 写到 vp.style.height
-       强制收缩），content area = vpH - 8 - 60 = vpH - 68，文字严格画在 content area 内，
-       末行底部 y ≈ vpH - 60，UC navbar 顶部 y ≈ innerH - 180，末行距 navbar 顶部 80px 安全距离。
-       PAD_BOT=60 / CSS padding-bottom 60px 不动（与 vpH 让位独立、不双扣）。 */
-    if (isUC) vpH = Math.max(200, vpH - 200);
+    /* fcH 从 DOM 真实读取（chrome6 唯一真相来源） */
+    let fcH = innerH;
+    const fc = document.querySelector('.fp-content');
+    if (fc && fc.style.height && /^\d+(\.\d+)?px$/.test(fc.style.height)) {
+      const h = parseFloat(fc.style.height);
+      if (h >= 200 && h < innerH + 100) fcH = h;
+    }
 
-    /* 宽度多级 fallback（uc 旧内核 clientWidth 失真） */
+    /* 宽度多级 fallback */
     let winW = 0;
     const vp = viewport();
     if (vp && vp.clientWidth && vp.clientWidth >= 50) winW = vp.clientWidth;
@@ -68,32 +58,63 @@ const Reader = (function () {
       winW = document.documentElement.clientWidth;
     if (!winW || winW < 50) winW = 360;
 
-    /* fp-content padding: env(safe-area-inset-top) + 8px 顶，env(safe-area-inset-bottom) + 60px 底（UC，
-       标准浏览器仅 8px）。vh 是 fp-content 真实可用高（已扣 navbar + padding）。 */
-    const PAD_TOP = 8, PAD_BOT = isUC ? 60 : 8, PAD_X = 28;
+    /* fc-content padding 8/14/8（chrome6 起 UC 不再叠加 padding 让位，避免双扣） */
+    const PAD_TOP = 8, PAD_BOT = 8, PAD_X = 28;
     return {
       vw: Math.max(160, winW - PAD_X),
-      vh: Math.max(120, vpH - PAD_TOP - PAD_BOT),
-      vpH,                                    /* 物理窗口高（给 vp.style.height 用） */
+      vh: Math.max(120, fcH - PAD_TOP - PAD_BOT),
+      fcH,                                      /* fp-content 真实高度（UC = innerH - navbarReserve, chrome = innerH） */
+      vpH: innerH,                              /* 物理窗口高（用于 debug 显示） */
+      innerH,
+      vvH,
       winW,
-      rawInnerH: innerH,
-      rawVvH: vvH,
       ua: isUC ? 'uc' : (isWX ? 'wx' : 'std')
     };
   }
 
-  /* 把视觉视口应用到 DOM（不读 DOM、纯写 style）——
-     resize / visualViewport.resize 时也要重设（UC 切全屏/分屏 vpH 变化）。
-     UC 让位已交给 CSS（html.uc .fp-content 加 padding-bottom），JS 这边不再写
-     fc.style.bottom —— 之前写 inline bottom + CSS var() 双重保险在 UC 旧内核上
-     反而把 fp-content 高度算成 0 导致文字完全不显示（round3 根因）。 */
-  function applyUCLayout() {
-    const stage = getStageInnerSize();
-    const vp = document.getElementById('reader-viewport');
-    if (vp && stage.vpH) {
-      vp.style.height = stage.vpH + 'px';
-      vp.style.flex = '0 0 ' + stage.vpH + 'px';
+  /* 把让位应用到 DOM（不读 DOM、纯写 style）：
+     chrome6 起，UC 让位完全由 fc.style.height inline 接管，**不再写** vp.style.height
+     ——后者在 UC 旧内核被忽略（chrome3 时已验证 var() 失效、inline height 同样不可靠），
+     写上去会让人误以为让位生效，实际 fp-content 真实高度仍是 innerH。
+     fc.style.height 是 inline style，所有内核 100% 接管，UC 上 fp-content 真实高度 = 该值。 */
+  function getNavbarReserve() {
+    /* UC navbar 实际高度（含 5 图标 + padding + 底部手势条），实测 90-110px。
+       优先用 visualViewport.height - window.innerHeight 差值检测（UC13+ 标准 API）：
+       标准浏览器 visualViewport 等于 innerHeight - 地址栏高度，差值是地址栏；
+       UC visualViewport 与 innerHeight 接近时差值为 0 时仍走回退值（说明 navbar 也算 innerHeight 内）。
+       安全回退 130（含 20px buffer）。
+       注意：UC 旧内核 visualViewport 不一定能拿到，依然走 130 回退。 */
+    let reserve = 0;
+    const isUC = /UCBrowser|UCWEB|UcWeb/i.test(navigator.userAgent);
+    if (!isUC) return 0;
+    if (window.visualViewport && window.innerHeight) {
+      const vvH = window.visualViewport.height;
+      const diff = window.innerHeight - vvH;
+      /* diff ∈ [40, 200] 视为 navbar 真实高度（避免地址栏差值误判） */
+      if (diff >= 40 && diff <= 200) reserve = diff + 20; /* +20 buffer */
     }
+    if (reserve < 100) reserve = 130; /* 兜底：实测最大值 110 + buffer 20 */
+    return reserve;
+  }
+  function applyUCLayout() {
+    const isUC = /UCBrowser|UCWEB|UcWeb/i.test(navigator.userAgent);
+    if (isUC) {
+      if (!document.documentElement.classList.contains('uc')) {
+        document.documentElement.classList.add('uc');
+      }
+    }
+    const innerH = window.innerHeight || 640;
+    /* chrome/微信/Safari：fc.style.height = '' 让 CSS inset:0 自然铺满 = innerH（满屏铺字） */
+    const navbarReserve = isUC ? getNavbarReserve() : 0;
+    document.querySelectorAll('.fp-content').forEach(fc => {
+      if (isUC) {
+        /* UC：fc.style.height = innerH - navbarReserve，inline 100% 生效 */
+        fc.style.height = (innerH - navbarReserve) + 'px';
+      } else {
+        /* 非 UC：清空 inline 让 CSS inset:0 自然铺满 */
+        fc.style.height = '';
+      }
+    });
   }
 
   /* ---------- 纠错数据应用（仅用于保留已保存的纠错结果，无编辑 UI） ---------- */
@@ -266,25 +287,36 @@ const Reader = (function () {
       });
     }
     /* === 诊断浮层（仅 ?debug=1 时显示，不影响正常阅读）===
-       把真实渲染后的关键尺寸打到屏幕，用于定位"末行被切"根因。
-       正常访问（不带 ?debug=1）完全无感。 */
+       chrome6 起：输出 vpH/fcH/fcTop/fcBottom/navbarReserve 五个真实尺寸，
+       让用户硬刷 ?debug=1 直接看到所有数字、便于精确诊断。同时保留
+       lastLineBottom（负数=溢出被切）与 linesPerPage 等历史字段。 */
     if (/[?&]debug=1/.test(location.search)) {
       const vp = viewport();
-      const stage = vp && vp.querySelector('.reader-stage');
+      const fc = content;
+      const fcRect = fc ? fc.getBoundingClientRect() : null;
+      const vpRect = vp ? vp.getBoundingClientRect() : null;
+      const ps = fc ? fc.querySelectorAll('p') : [];
+      const last = ps.length ? ps[ps.length - 1].getBoundingClientRect() : null;
+      const fcBottom = fcRect ? fcRect.bottom : 0;
+      const lastBottom = last ? last.bottom : 0;
+      /* navbarReserve 从 fc.style.height 推断：innerH - fcH（chrome6 唯一真相来源） */
+      const fcStyleH = fc && fc.style.height ? parseFloat(fc.style.height) : 0;
+      const navbarReserveFromFc = fcStyleH ? Math.round(window.innerHeight - fcStyleH) : 0;
+      /* UC 类识别：从 html 是否带 .uc 类拿 navbarReserve（getNavbarReserve 输出） */
+      const stage = getStageInnerSize();
       const info = [
-        'winH=' + window.innerHeight,
+        'vpH=' + Math.round(window.innerHeight) + ' (innerHeight)',
+        'fcH=' + Math.round(stage.fcH) + ' (fp-content.style.height 实测)',
+        'fcTop=' + (fcRect ? Math.round(fcRect.top) : '?'),
+        'fcBottom=' + (fcRect ? Math.round(fcRect.bottom) : '?'),
+        'vpTop=' + (vpRect ? Math.round(vpRect.top) : '?'),
+        'vpBottom=' + (vpRect ? Math.round(vpRect.bottom) : '?'),
+        'navbarReserve=' + navbarReserveFromFc + ' (innerH-fcH, 0=chrome)',
+        'fcPad: 8/14/8 (chrome6 全浏览器一致)',
         'UA=' + (navigator.userAgent.match(/UCBrowser|UCWEB|MicroMessenger|iPhone|Android/i) || ['?'])[0],
-        'viewportH=' + (vp ? Math.round(vp.getBoundingClientRect().height) : '?'),
-        'stageH=' + (stage ? Math.round(stage.getBoundingClientRect().height) : '?'),
-        'fpClientH=' + Math.round(content.clientHeight),
-        'fpScrollH=' + Math.round(content.scrollHeight),
-        'fpPadTop=' + Math.round(content.clientHeight ? (content.getBoundingClientRect().top - (vp ? vp.getBoundingClientRect().top : 0)) : 0),
         'lastLineBottom=' + (function () {
-          const ps = content.querySelectorAll('p');
-          if (!ps.length) return '?';
-          const last = ps[ps.length - 1].getBoundingClientRect();
-          const fpBottom = content.getBoundingClientRect().bottom;
-          return Math.round(fpBottom - last.bottom) + 'px (负=溢出被切)';
+          if (!last) return '?';
+          return Math.round(fcBottom - lastBottom) + 'px (负=溢出被切)';
         })(),
         'linesPerPage=' + (typeof pages !== 'undefined' && pages[idx] ? pages[idx].length : '?'),
         'idx=' + idx
@@ -293,7 +325,7 @@ const Reader = (function () {
       if (!dbg) {
         dbg = document.createElement('pre');
         dbg.id = 'debug-overlay';
-        dbg.style.cssText = 'position:fixed;left:8px;top:8px;z-index:9999;background:rgba(0,0,0,.78);color:#0f0;font:11px/1.4 monospace;padding:8px 10px;border-radius:8px;max-width:90vw;white-space:pre-wrap;pointer-events:none';
+        dbg.style.cssText = 'position:fixed;left:8px;top:8px;z-index:9999;background:rgba(0,0,0,.82);color:#0f0;font:11px/1.45 monospace;padding:10px 12px;border-radius:8px;max-width:92vw;white-space:pre-wrap;pointer-events:none;box-shadow:0 2px 12px rgba(0,0,0,.4)';
         document.body.appendChild(dbg);
       }
       dbg.textContent = info;
@@ -867,18 +899,12 @@ const Reader = (function () {
     frontEl.style.transform = ''; backEl.style.transform = '';
     frontEl.style.zIndex = ''; backEl.style.zIndex = '';
 
-    /* UC 兼容（极简化）：CSS 已通过 html.uc .fp-content { padding-bottom: +60px } 让位
-       navbar 52px 物理空间，JS 这边只需给 viewport 写固定高度，让 vpH 与 fp-content 在
-       同一尺寸链上。绝不再写 fc.style.bottom —— UC 旧内核解析时把 fp-content 高度算成 0
-       是 round3 时让"UC 文字全不显示"的根因。 */
-    if (/UCBrowser|UCWEB|UcWeb/i.test(navigator.userAgent)) {
-      if (!document.documentElement.classList.contains('uc')) {
-        document.documentElement.classList.add('uc');
-      }
-      try {
-        applyUCLayout();
-      } catch (e) { /* 兜底失败也不影响主流程 */ }
-    }
+    /* chrome6 UC 兼容：applyUCLayout 写 fc.style.height（inline 100% 生效），
+       fp-content 真实高度 = innerH - navbarReserve（UC navbar 让位）。
+       后续 paginate 用 getStageInnerSize 读 fc.style.height 得到 fcH，
+       再算可用高 = fcH - 16，分页预估与 fp-content 真实可绘区严格 1:1，
+       从原理上杜绝「末行被 overflow:hidden 切」。 */
+    applyUCLayout();
 
     const loading = document.getElementById('reader-loading');
     loading.hidden = false;
