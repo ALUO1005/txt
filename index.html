@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
   <meta name="theme-color" content="#F7F1E3" />
   <title>墨阅 · TXT小说阅读器</title>
-  <link rel="stylesheet" href="styles.css?v=chrome13" />
+  <link rel="stylesheet" href="styles.css?v=chrome14" />
 </head>
 <body>
   <!-- ============ 书架页 ============ -->
@@ -223,6 +223,24 @@
     </div>
   </div>
 
+  <!-- ============ 导出修正版 txt（可复制 / 可保存，兼容 UC 等不支持 blob 下载的浏览器） ============ -->
+  <div id="export-modal" class="modal export-modal" hidden>
+    <div class="modal-mask" id="export-mask"></div>
+    <div class="modal-panel">
+      <div class="modal-head">
+        <span>导出修正版 txt</span>
+        <button class="icon-btn" id="btn-export-close">×</button>
+      </div>
+      <textarea id="export-text" class="edit-text export-text" rows="10" readonly placeholder="修正后的全文将显示在这里…"></textarea>
+      <div class="modal-tip">这是已合并全部纠错与替换的干净文本。点「复制全文」可复制到剪贴板保存；点「保存为文件」在支持的浏览器里直接下载 .txt（UC 等浏览器可能不支持自动下载，请用复制方式）。</div>
+      <div class="modal-actions">
+        <button class="wide-btn ghost" id="btn-export-cancel">关闭</button>
+        <button class="wide-btn" id="btn-export-copy">复制全文</button>
+        <button class="wide-btn primary" id="btn-export-save">保存为文件</button>
+      </div>
+    </div>
+  </div>
+
   <!-- ============ 查找 / 替换（作用于全书正文，复用纠错 edits 持久化） ============ -->
   <div id="find-replace-modal" class="modal find-replace-modal" hidden>
     <div class="modal-mask" id="fr-mask"></div>
@@ -249,7 +267,7 @@
   <div id="toast" class="toast" hidden></div>
 
   <script src="vendor/tcb.js"></script>
-  <script src="app.js?v=chrome13"></script>
-  <script src="reader.js?v=chrome13"></script>
+  <script src="app.js?v=chrome14"></script>
+  <script src="reader.js?v=chrome14"></script>
 </body>
 </html>

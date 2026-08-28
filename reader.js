@@ -1,6 +1,6 @@
 /* ============================================================
    墨阅 · 阅读页逻辑（分页 / 翻页动画 / 进度 / 目录 / 书签 / 跳转 / 段落纠错）
-   版本：chrome13（长按正文进入段落纠错；保存/取消后自动退出；用 elementFromPoint 取真实段落修复"选错段"）
+   版本：chrome14（长按不再弹系统复制条：加 selectstart 兜底 + 清除选区；导出改为"可复制弹窗+尽力下载"，解决 UC 卡在下载重试且存不下文件）
    ============================================================ */
 const Reader = (function () {
   let book = null;
@@ -500,32 +500,82 @@ const Reader = (function () {
   }
   function frHasMatches() { return frMatchParas.length > 0; }
 
-  /* ---------- 导出修正版 txt（把全部纠错 + 替换烘焙进正文，下载成干净 txt） ---------- */
+  /* ---------- 导出修正版 txt（把全部纠错 + 替换烘焙进正文） ----------
+     关键兼容：UC 等老旧内核不支持「blob 锚点下载」——直接 a.download 会触发浏览器下载管理器
+     卡在"重试中"且永远存不下文件。故改为：先把修正版全文显示在弹窗里，提供「复制全文」
+     （clipboard / execCommand 兜底，全平台可用）+「保存为文件」（在支持 blob 下载的浏览器里生效，
+     如 Chrome / 微信内置浏览器）。无论如何用户都能拿到正文，不再卡死。 */
   function makeExportName(title) {
     let base = (title || '文档').replace(/\.(txt|text)$/i, '');
     return base + '-修正版.txt';
   }
+  let exportModalReady = false;
+  let exportFileName = '';
+  function ensureExportModal() {
+    if (exportModalReady) return;
+    const modal = document.getElementById('export-modal');
+    const ta = document.getElementById('export-text');
+    const close = () => { modal.classList.remove('open'); setTimeout(() => { modal.hidden = true; }, 200); };
+    document.getElementById('btn-export-close').addEventListener('click', close);
+    document.getElementById('btn-export-cancel').addEventListener('click', close);
+    document.getElementById('export-mask').addEventListener('click', close);
+    document.getElementById('btn-export-copy').addEventListener('click', async () => {
+      try {
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          await navigator.clipboard.writeText(ta.value);
+        } else {
+          ta.removeAttribute('readonly');
+          ta.focus(); ta.select();
+          document.execCommand('copy');
+          ta.setAttribute('readonly', '');
+        }
+        showToast('已复制全文，可粘贴到备忘录/微信保存');
+      } catch (e) {
+        /* 极少数环境 clipboard 被禁：退回手动选择复制 */
+        ta.removeAttribute('readonly'); ta.focus(); ta.select();
+        try { document.execCommand('copy'); showToast('已复制全文'); }
+        catch (_) { showToast('请长按上方文本手动复制'); }
+      }
+    });
+    document.getElementById('btn-export-save').addEventListener('click', () => {
+      try {
+        const blob = new Blob(['﻿' + ta.value], { type: 'text/plain;charset=utf-8' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url; a.download = exportFileName || '文档-修正版.txt';
+        document.body.appendChild(a); a.click(); document.body.removeChild(a);
+        setTimeout(() => URL.revokeObjectURL(url), 1500);
+        showToast('已尝试保存为文件（不支持自动下载的浏览器请改用复制）');
+      } catch (e) { showToast('该浏览器不支持自动下载，请点「复制全文」'); }
+    });
+    exportModalReady = true;
+  }
+  function showExportModal(text, filename) {
+    exportFileName = filename;
+    const modal = document.getElementById('export-modal');
+    document.getElementById('export-text').value = text;
+    modal.hidden = false;
+    void modal.offsetWidth;              /* 强制重排，确保 slideUp 动画触发 */
+    modal.classList.add('open');
+    ensureExportModal();
+  }
   async function exportCorrected() {
     if (!book) { showToast('请先打开一本书再导出'); return; }
-    /* 从 IndexedDB 重新读取该书的全部纠错/替换，确保导出的是"已保存的所有修改"，
-       不依赖内存里 correctedParas 的实时状态 */
-    const edits = (await idbGetAll('edits')).filter(e => e.bookId === book.id);
-    const map = {};
-    edits.forEach(e => { map[e.origStart] = e.text; });
-    const parts = origParas.map(p =>
-      Object.prototype.hasOwnProperty.call(map, p.origStart) ? map[p.origStart] : p.text
-    );
-    const text = parts.join('\n');
-    const blob = new Blob(['﻿' + text], { type: 'text/plain;charset=utf-8' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = makeExportName(book.title);
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    setTimeout(() => URL.revokeObjectURL(url), 1500);
-    showToast('已导出修正版（含全部纠错与替换）');
+    try {
+      /* 从 IndexedDB 重新读取该书的全部纠错/替换，确保导出的是"已保存的所有修改"，
+         不依赖内存里 correctedParas 的实时状态 */
+      const edits = (await idbGetAll('edits')).filter(e => e.bookId === book.id);
+      const map = {};
+      edits.forEach(e => { map[e.origStart] = e.text; });
+      const parts = origParas.map(p =>
+        Object.prototype.hasOwnProperty.call(map, p.origStart) ? map[p.origStart] : p.text
+      );
+      const text = parts.join('\n');
+      showExportModal(text, makeExportName(book.title));
+    } catch (e) {
+      showToast('导出失败：' + ((e && e.message) || e));
+      console.error(e);
+    }
   }
 
   function setZ() { if (frontEl) frontEl.style.zIndex = 2; if (backEl) backEl.style.zIndex = 1; }
@@ -737,12 +787,18 @@ const Reader = (function () {
     /* 长按进入纠错（取代点「✎ 纠错」按钮）：手指长按正文 → 直接打开该段编辑弹窗。
        用 elementFromPoint 取到手指下的真实段落元素，从根上避免"点到 A 段却弹出 B 段"的选错问题。 */
     vp.addEventListener('contextmenu', (e) => { e.preventDefault(); }); // 长按不弹系统菜单/复制条
+    /* UC 旧内核对 user-select:none 不买账，长按仍会弹出系统「选择/复制」条。再用 selectstart
+       兜底：阻止选区创建，从根上干掉系统复制条（仅作用于阅读区，不影响弹窗内 textarea 选择）。 */
+    vp.addEventListener('selectstart', (e) => { e.preventDefault(); });
     const lpStart = (x, y) => {
       if (isOverlayOpen()) return;
       lpX = x; lpY = y; lpFired = false;
       clearTimeout(lpTimer);
       lpTimer = setTimeout(() => {
         lpFired = true;
+        /* 长按生效时清掉任何已生成的文本选区，避免系统复制条残留 */
+        const sel = window.getSelection();
+        if (sel && sel.removeAllRanges) sel.removeAllRanges();
         const elx = document.elementFromPoint(lpX, lpY);
         const para = elx && elx.closest ? elx.closest('.para-edit') : null;
         if (para && para.dataset && para.dataset.para != null) openEdit(+para.dataset.para);

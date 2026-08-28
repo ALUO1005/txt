@@ -374,8 +374,12 @@ html.uc .fr-input { height: 44px; }
 
 /* ---------- 段落纠错：阅读态段落可点击进入编辑 ---------- */
 /* 纠错模式下，正文段落整段可点（UC 上不用 contenteditable，避免键盘闪退） */
-/* 长按纠错时禁止文本选择高亮 / 系统复制条（不影响弹窗内 textarea 选择） */
-.reader-viewport .fp-content { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
+/* 长按纠错时禁止文本选择高亮 / 系统复制条（不影响弹窗内 textarea 选择）。
+   UC 旧内核对 .fp-content 的 user-select 仍会失效，故在 JS 层再用 selectstart 兜底（见 reader.js）。 */
+.reader-viewport,
+.reader-viewport .flip-page,
+.reader-viewport .fp-content,
+.reader-viewport .fp-shade { -webkit-user-select: none; -moz-user-select: none; user-select: none; -webkit-touch-callout: none; -webkit-user-drag: none; }
 .reader-viewport.edit-on .fp-content .para-edit {
   cursor: pointer;
   border-radius: 6px;
@@ -385,6 +389,7 @@ html.uc .fr-input { height: 44px; }
   background: rgba(127,127,127,0.18);
 }
 .edit-modal .edit-text { font-size: 16px; line-height: 1.8; min-height: 38vh; }
+.export-modal .export-text { font-size: 15px; line-height: 1.7; min-height: 42vh; }
 
 /* 弹出面板 */
 .pop-panel { position: absolute; left: 50%; transform: translateX(-50%);
