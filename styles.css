@@ -374,6 +374,8 @@ html.uc .fr-input { height: 44px; }
 
 /* ---------- 段落纠错：阅读态段落可点击进入编辑 ---------- */
 /* 纠错模式下，正文段落整段可点（UC 上不用 contenteditable，避免键盘闪退） */
+/* 长按纠错时禁止文本选择高亮 / 系统复制条（不影响弹窗内 textarea 选择） */
+.reader-viewport .fp-content { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
 .reader-viewport.edit-on .fp-content .para-edit {
   cursor: pointer;
   border-radius: 6px;

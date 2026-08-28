@@ -1,6 +1,6 @@
 /* ============================================================
    墨阅 · 阅读页逻辑（分页 / 翻页动画 / 进度 / 目录 / 书签 / 跳转 / 段落纠错）
-   版本：20260824b（恢复段落弹窗式纠错：点正文段落 → 弹窗编辑本段，保存写 edits 库）
+   版本：chrome13（长按正文进入段落纠错；保存/取消后自动退出；用 elementFromPoint 取真实段落修复"选错段"）
    ============================================================ */
 const Reader = (function () {
   let book = null;
@@ -278,13 +278,9 @@ const Reader = (function () {
     flush();
     content.innerHTML = html;
     el._idx = idx;
-    /* 纠错模式下：给本页所有段落绑点击 → 弹出编辑弹窗 */
-    if (editMode) {
-      content.querySelectorAll('.para-edit').forEach(p => {
-        const pi = +p.dataset.para;
-        p.addEventListener('click', () => openEdit(pi));
-      });
-    }
+    /* 纠错点击不再在此逐段绑定：改为在 bindGestures 里对 vp 做事件委托
+       （handleTap 用 e.target.closest('.para-edit') 取真实段落），避免重复/错位绑定。
+       长按进入纠错则在 bindGestures 用 elementFromPoint 直接定位手指下的段落。 */
     /* === 诊断浮层（仅 ?debug=1 时显示，不影响正常阅读）===
        chrome6 起：输出 vpH/fcH/fcTop/fcBottom/navbarReserve 五个真实尺寸，
        让用户硬刷 ?debug=1 直接看到所有数字、便于精确诊断。同时保留
@@ -350,10 +346,20 @@ const Reader = (function () {
     setTimeout(() => { try { ta.focus(); } catch (e) {} }, 60);
   }
   function closeEdit() {
+    exitEditMode();   /* 关闭弹窗即退出纠错，回到阅读模式（保存/取消都走这里） */
     const modal = document.getElementById('edit-modal');
     modal.classList.remove('open');
     setTimeout(() => { modal.hidden = true; }, 250);
     editingPara = -1;
+  }
+  /* 退出纠错模式：去掉高亮、取消按钮 active，回到纯阅读态（不丢已保存的纠错数据） */
+  function exitEditMode() {
+    if (!editMode) return;
+    editMode = false;
+    const vp = viewport();
+    if (vp) vp.classList.remove('edit-on');
+    const btn = document.getElementById('btn-edit-mode');
+    if (btn) btn.classList.remove('active');
   }
   async function saveEdit() {
     if (!book || editingPara < 0) { closeEdit(); return; }
@@ -369,11 +375,10 @@ const Reader = (function () {
       }
       await buildCorrected();
       await paginate();
+      /* 先退出纠错（去掉高亮），再重排渲染 → 保存后直接回到阅读模式 */
+      exitEditMode();
       /* 重新定位到当前段落所在页 */
-      let target = 0;
-      for (let i = 0; i < pages.length; i++) {
-        if (pages[i].some(it => it.paraIndex === pi)) { target = i; break; }
-      }
+      const target = paraFirstPage(pi);
       index = target;
       renderPageInto(frontEl, index);
       renderPageInto(backEl, clamp(index + 1));
@@ -685,9 +690,20 @@ const Reader = (function () {
   }
 
   /* ---------- 手势 ---------- */
+  /* 长按纠错手势状态（模块级，handleTap 与 bindGestures 共用） */
+  let lpTimer = null, lpX = 0, lpY = 0, lpFired = false;
+  const LP_MS = 450, LP_MOVE = 12;
   function handleTap(clientX, target) {
+    /* 长按手势已触发纠错 → 这次抬起不再翻页/显隐，避免重复触发 */
+    if (lpFired) { lpFired = false; return; }
     /* 覆盖层（弹窗/抽屉/浮面板）打开时，正文点击交给覆盖层，不翻页也不显隐 */
     if (isOverlayOpen()) return;
+    /* 纠错模式（点「✎ 纠错」进入的点击模式）：点段落 → 弹窗改本段；点别处不翻页/不显隐 */
+    if (editMode) {
+      const p = target && target.closest ? target.closest('.para-edit') : null;
+      if (p && p.dataset && p.dataset.para != null) openEdit(+p.dataset.para);
+      return;
+    }
     const w = viewport().clientWidth;
     const r = clientX / w;
     if (r < 0.25) go(-1);
@@ -717,6 +733,34 @@ const Reader = (function () {
     });
     if (!isTouch) {
       vp.addEventListener('click', (e) => { handleTap(e.clientX, e.target); });
+    }
+    /* 长按进入纠错（取代点「✎ 纠错」按钮）：手指长按正文 → 直接打开该段编辑弹窗。
+       用 elementFromPoint 取到手指下的真实段落元素，从根上避免"点到 A 段却弹出 B 段"的选错问题。 */
+    vp.addEventListener('contextmenu', (e) => { e.preventDefault(); }); // 长按不弹系统菜单/复制条
+    const lpStart = (x, y) => {
+      if (isOverlayOpen()) return;
+      lpX = x; lpY = y; lpFired = false;
+      clearTimeout(lpTimer);
+      lpTimer = setTimeout(() => {
+        lpFired = true;
+        const elx = document.elementFromPoint(lpX, lpY);
+        const para = elx && elx.closest ? elx.closest('.para-edit') : null;
+        if (para && para.dataset && para.dataset.para != null) openEdit(+para.dataset.para);
+      }, LP_MS);
+    };
+    const lpMove = (x, y) => {
+      if (Math.abs(x - lpX) > LP_MOVE || Math.abs(y - lpY) > LP_MOVE) clearTimeout(lpTimer);
+    };
+    const lpEnd = () => { clearTimeout(lpTimer); };
+    vp.addEventListener('touchstart', (e) => { const t = e.touches[0]; if (t) lpStart(t.clientX, t.clientY); }, { passive: true });
+    vp.addEventListener('touchmove', (e) => { const t = e.touches[0]; if (t) lpMove(t.clientX, t.clientY); }, { passive: true });
+    vp.addEventListener('touchend', lpEnd, { passive: true });
+    vp.addEventListener('touchcancel', lpEnd, { passive: true });
+    if (!isTouch) {
+      vp.addEventListener('mousedown', (e) => lpStart(e.clientX, e.clientY));
+      vp.addEventListener('mousemove', (e) => lpMove(e.clientX, e.clientY));
+      vp.addEventListener('mouseup', lpEnd);
+      vp.addEventListener('mouseleave', lpEnd);
     }
     /* window resize（系统字体大小变化、屏幕旋转）→ 重排 */
     window.addEventListener('resize', () => {
