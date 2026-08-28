@@ -375,11 +375,26 @@ html.uc .fr-input { height: 44px; }
 /* ---------- 段落纠错：阅读态段落可点击进入编辑 ---------- */
 /* 纠错模式下，正文段落整段可点（UC 上不用 contenteditable，避免键盘闪退） */
 /* 长按纠错时禁止文本选择高亮 / 系统复制条（不影响弹窗内 textarea 选择）。
-   UC 旧内核对 .fp-content 的 user-select 仍会失效，故在 JS 层再用 selectstart 兜底（见 reader.js）。 */
+   用 !important + 覆盖所有后代元素，确保 UC 长按时正文不可被选中（无选区即无系统复制条）。
+   弹窗内的 textarea/input 单独放开，便于编辑与复制。JS 层再用 selectstart/contextmenu 兜底（见 reader.js）。 */
 .reader-viewport,
-.reader-viewport .flip-page,
-.reader-viewport .fp-content,
-.reader-viewport .fp-shade { -webkit-user-select: none; -moz-user-select: none; user-select: none; -webkit-touch-callout: none; -webkit-user-drag: none; }
+.reader-viewport * {
+  -webkit-user-select: none !important;
+  -moz-user-select: none !important;
+  user-select: none !important;
+  -webkit-touch-callout: none !important;
+  -webkit-user-drag: none !important;
+}
+/* 弹窗内允许选中（编辑 / 复制修正文本需要） */
+.edit-modal textarea,
+.export-modal textarea,
+.modal input,
+.modal [contenteditable] {
+  -webkit-user-select: text !important;
+  -moz-user-select: text !important;
+  user-select: text !important;
+  -webkit-touch-callout: default !important;
+}
 .reader-viewport.edit-on .fp-content .para-edit {
   cursor: pointer;
   border-radius: 6px;

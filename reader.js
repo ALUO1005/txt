@@ -1,6 +1,6 @@
 /* ============================================================
    墨阅 · 阅读页逻辑（分页 / 翻页动画 / 进度 / 目录 / 书签 / 跳转 / 段落纠错）
-   版本：chrome14（长按不再弹系统复制条：加 selectstart 兜底 + 清除选区；导出改为"可复制弹窗+尽力下载"，解决 UC 卡在下载重试且存不下文件）
+   版本：chrome15（长按系统复制条多重兜底：user-select!important+文档级contextmenu捕获+内联handler+清除选区；导出改用 data: URL 直接下载，UC 不再卡重试）
    ============================================================ */
 const Reader = (function () {
   let book = null;
@@ -333,6 +333,9 @@ const Reader = (function () {
   /* ---------- 段落纠错（弹窗式：点正文段落 → 弹出编辑本段） ---------- */
   function openEdit(pi) {
     if (!book || pi < 0 || pi >= origParas.length) return;
+    /* 打开前清掉任何已生成的文本选区，避免 UC 系统复制条残留 */
+    const sel = window.getSelection();
+    if (sel && sel.removeAllRanges) { try { sel.removeAllRanges(); } catch (e) {} }
     editingPara = pi;
     const orig = origParas[pi];
     const cur = correctedParas[pi] != null ? correctedParas[pi] : orig.text;
@@ -501,13 +504,23 @@ const Reader = (function () {
   function frHasMatches() { return frMatchParas.length > 0; }
 
   /* ---------- 导出修正版 txt（把全部纠错 + 替换烘焙进正文） ----------
-     关键兼容：UC 等老旧内核不支持「blob 锚点下载」——直接 a.download 会触发浏览器下载管理器
-     卡在"重试中"且永远存不下文件。故改为：先把修正版全文显示在弹窗里，提供「复制全文」
-     （clipboard / execCommand 兜底，全平台可用）+「保存为文件」（在支持 blob 下载的浏览器里生效，
-     如 Chrome / 微信内置浏览器）。无论如何用户都能拿到正文，不再卡死。 */
+     关键兼容：UC 等老旧内核不支持「blob 锚点下载」——直接 a.download + blob URL 会触发浏览器
+     下载管理器卡在"重试中"且永远存不下文件。改用「data: 文本 URL」下载：绝大多数移动浏览器
+     （含 UC）都能把它当成普通文件直接下载保存。同时在弹窗提供「复制全文」作兜底。 */
   function makeExportName(title) {
     let base = (title || '文档').replace(/\.(txt|text)$/i, '');
     return base + '-修正版.txt';
+  }
+  /* 直接触发文件下载：用 data: URL（UC/老旧内核也能保存，不卡重试） */
+  function downloadText(filename, text) {
+    const dataUrl = 'data:text/plain;charset=utf-8,' + encodeURIComponent('﻿' + text);
+    const a = document.createElement('a');
+    a.href = dataUrl;
+    a.download = filename;
+    a.rel = 'noopener';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
   }
   let exportModalReady = false;
   let exportFileName = '';
@@ -539,13 +552,9 @@ const Reader = (function () {
     });
     document.getElementById('btn-export-save').addEventListener('click', () => {
       try {
-        const blob = new Blob(['﻿' + ta.value], { type: 'text/plain;charset=utf-8' });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url; a.download = exportFileName || '文档-修正版.txt';
-        document.body.appendChild(a); a.click(); document.body.removeChild(a);
-        setTimeout(() => URL.revokeObjectURL(url), 1500);
-        showToast('已尝试保存为文件（不支持自动下载的浏览器请改用复制）');
+        /* data: URL 下载，UC / 老旧内核也能直接保存，不卡在下载重试 */
+        downloadText(exportFileName || '文档-修正版.txt', ta.value);
+        showToast('已开始保存文件（UC 一般会直接下载到「下载」目录）');
       } catch (e) { showToast('该浏览器不支持自动下载，请点「复制全文」'); }
     });
     exportModalReady = true;
@@ -571,7 +580,12 @@ const Reader = (function () {
         Object.prototype.hasOwnProperty.call(map, p.origStart) ? map[p.origStart] : p.text
       );
       const text = parts.join('\n');
-      showExportModal(text, makeExportName(book.title));
+      const name = makeExportName(book.title);
+      /* 直接触发文件下载（data: URL，UC 也能保存，不卡重试）。
+         若个别浏览器仍拦截自动下载，弹窗里的「复制全文 / 保存为文件」可作兜底。 */
+      downloadText(name, text);
+      showExportModal(text, name);
+      showToast('已导出修正版 txt（若未自动下载，可在弹窗内复制或点「保存为文件」）');
     } catch (e) {
       showToast('导出失败：' + ((e && e.message) || e));
       console.error(e);
@@ -787,9 +801,20 @@ const Reader = (function () {
     /* 长按进入纠错（取代点「✎ 纠错」按钮）：手指长按正文 → 直接打开该段编辑弹窗。
        用 elementFromPoint 取到手指下的真实段落元素，从根上避免"点到 A 段却弹出 B 段"的选错问题。 */
     vp.addEventListener('contextmenu', (e) => { e.preventDefault(); }); // 长按不弹系统菜单/复制条
-    /* UC 旧内核对 user-select:none 不买账，长按仍会弹出系统「选择/复制」条。再用 selectstart
-       兜底：阻止选区创建，从根上干掉系统复制条（仅作用于阅读区，不影响弹窗内 textarea 选择）。 */
+    /* UC 旧内核对 user-select:none 不买账，长按仍会弹出系统「选择/复制」条。三重兜底：
+       ① selectstart 阻止选区创建（仅阅读区，不影响弹窗内 textarea）；
+       ② oncontextmenu/onselectstart 内联属性（部分 UC 对 addEventListener 不买账，内联更稳）；
+       ③ 文档级 contextmenu 捕获（UC 长按复制条常走此事件），但弹窗内放行以便粘贴/选择。 */
     vp.addEventListener('selectstart', (e) => { e.preventDefault(); });
+    vp.setAttribute('oncontextmenu', 'return false');
+    vp.setAttribute('onselectstart', 'return false');
+    if (!bindGestures._ctxGuard) {
+      bindGestures._ctxGuard = true;
+      document.addEventListener('contextmenu', function (e) {
+        if (e.target && e.target.closest && e.target.closest('.modal')) return; // 弹窗内允许（粘贴菜单）
+        e.preventDefault();
+      }, true);
+    }
     const lpStart = (x, y) => {
       if (isOverlayOpen()) return;
       lpX = x; lpY = y; lpFired = false;
